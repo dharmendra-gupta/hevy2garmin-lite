@@ -60,8 +60,8 @@ _login_error_detail: str | None = None
 POLL_JOB_ID = "poll"
 
 
-def _log_event(status_: str, detail: dict) -> None:
-    entry = {"timestamp": datetime.now(UTC).isoformat(), "status": status_, "detail": detail}
+def _log_event(source: str, status_: str, detail: dict) -> None:
+    entry = {"timestamp": datetime.now(UTC).isoformat(), "source": source, "status": status_, "detail": detail}
     with log_lock:
         memory_logs.appendleft(entry)
         if settings.PERSIST_LOGS:
@@ -81,12 +81,12 @@ def _log_event(status_: str, detail: dict) -> None:
                 logger.error("Failed to persist logs: %s", e)
 
 
-def _scheduled_sync() -> None:
-    """The polling reconciliation cycle. Used by both the (optional)
-    periodic timer and the manual Sync Now button — the button works
-    regardless of whether periodic polling is enabled."""
+def _scheduled_sync(source: str = "polling") -> None:
+    """The reconciliation cycle. Shared by the (optional) periodic timer
+    (source="polling") and the manual Sync Now button (source="manual") —
+    the button works regardless of whether periodic polling is enabled."""
     global _last_run_summary
-    logger.info("Starting sync cycle (poll reconciliation)")
+    logger.info("Starting sync cycle (%s reconciliation)", source)
     result = run_sync_cycle(db, mapper, dry_run=settings.DRY_RUN)
     summary = {
         "synced": result.synced,
@@ -96,9 +96,9 @@ def _scheduled_sync() -> None:
         "source_deleted": result.source_deleted,
         "errors": result.errors,
     }
-    _last_run_summary = {**summary, "ran_at": datetime.now(UTC).isoformat()}
-    _log_event("failed" if result.errors else "success", summary)
-    logger.info("Sync cycle complete: %s", summary)
+    _last_run_summary = {**summary, "source": source, "ran_at": datetime.now(UTC).isoformat()}
+    _log_event(source, "failed" if result.errors else "success", summary)
+    logger.info("Sync cycle complete (%s): %s", source, summary)
 
 
 def _run_login_in_background() -> None:
@@ -112,13 +112,16 @@ def _run_login_in_background() -> None:
         logger.error("Background Garmin login failed: %s", e)
 
 
-def _set_polling_job(enabled: bool) -> None:
-    existing = scheduler.get_job(POLL_JOB_ID)
-    if enabled and not existing:
-        scheduler.add_job(_scheduled_sync, "interval", minutes=settings.SYNC_INTERVAL_MINUTES, id=POLL_JOB_ID)
-        logger.info("Polling enabled (every %d min)", settings.SYNC_INTERVAL_MINUTES)
-    elif not enabled and existing:
+def _set_polling_job(enabled: bool, interval_minutes: int) -> None:
+    # Always remove-and-re-add rather than no-op-if-exists: this is also how
+    # an interval *change* while polling is already on takes effect, not
+    # just the enabled/disabled toggle.
+    if scheduler.get_job(POLL_JOB_ID):
         scheduler.remove_job(POLL_JOB_ID)
+    if enabled:
+        scheduler.add_job(_scheduled_sync, "interval", minutes=interval_minutes, id=POLL_JOB_ID)
+        logger.info("Polling enabled (every %d min)", interval_minutes)
+    else:
         logger.info("Polling disabled")
 
 
@@ -132,14 +135,14 @@ def _handle_webhook_workout(workout_id: str, attempt: int = 0) -> None:
     except (TokenLoadError, GarminConnectAuthenticationError) as e:
         reset_garmin_client()
         logger.error("Webhook sync for %s aborted — Garmin auth: %s", workout_id, e)
-        _log_event("failed", {"workout_id": workout_id, "attempt": attempt, "error": str(e)})
+        _log_event("webhook", "failed", {"workout_id": workout_id, "attempt": attempt, "error": str(e)})
         return
     except Exception as e:  # noqa: BLE001
         logger.error("Webhook sync for %s failed: %s", workout_id, e)
-        _log_event("failed", {"workout_id": workout_id, "attempt": attempt, "error": str(e)})
+        _log_event("webhook", "failed", {"workout_id": workout_id, "attempt": attempt, "error": str(e)})
         return
 
-    _log_event(result_status, {"workout_id": workout_id, "attempt": attempt})
+    _log_event("webhook", result_status, {"workout_id": workout_id, "attempt": attempt})
     logger.info("Webhook sync attempt %d for %s: %s", attempt, workout_id, result_status)
 
     if result_status == "no_watch_match":
@@ -163,7 +166,10 @@ async def lifespan(app: FastAPI):
         logger.warning("Mapping catalog data-quality issues at startup: %s", issues)
 
     scheduler.start()
-    _set_polling_job(db.get_polling_enabled(settings.POLLING_ENABLED_DEFAULT))
+    _set_polling_job(
+        db.get_polling_enabled(settings.POLLING_ENABLED_DEFAULT),
+        db.get_polling_interval_minutes(settings.SYNC_INTERVAL_MINUTES),
+    )
 
     if settings.PUBLIC_BASE_URL and settings.HEVY_WEBHOOK_AUTH_TOKEN and settings.HEVY_API_KEY:
         try:
@@ -202,6 +208,7 @@ class MFASubmission(BaseModel):
 
 class PollingSetting(BaseModel):
     enabled: bool
+    interval_minutes: int | None = None
 
 
 @app.get("/", response_class=HTMLResponse, dependencies=[Depends(verify_basic_auth)])
@@ -229,7 +236,7 @@ async def get_status():
         "polling_enabled": db.get_polling_enabled(settings.POLLING_ENABLED_DEFAULT),
         "dry_run": settings.DRY_RUN,
         "last_run": _last_run_summary,
-        "sync_interval_minutes": settings.SYNC_INTERVAL_MINUTES,
+        "sync_interval_minutes": db.get_polling_interval_minutes(settings.SYNC_INTERVAL_MINUTES),
         "match_tolerance_minutes": settings.MATCH_TOLERANCE_MINUTES,
     }
 
@@ -269,20 +276,30 @@ async def submit_mfa(body: MFASubmission):
 
 @app.post("/v1/sync-now", dependencies=[Depends(verify_basic_auth)])
 async def sync_now():
-    _scheduled_sync()
+    _scheduled_sync(source="manual")
     return _last_run_summary
 
 
 @app.get("/v1/settings/polling", dependencies=[Depends(verify_basic_auth)])
 async def get_polling_setting():
-    return {"enabled": db.get_polling_enabled(settings.POLLING_ENABLED_DEFAULT)}
+    return {
+        "enabled": db.get_polling_enabled(settings.POLLING_ENABLED_DEFAULT),
+        "interval_minutes": db.get_polling_interval_minutes(settings.SYNC_INTERVAL_MINUTES),
+    }
 
 
 @app.post("/v1/settings/polling", dependencies=[Depends(verify_basic_auth)])
 async def set_polling_setting(body: PollingSetting):
+    interval = body.interval_minutes if body.interval_minutes is not None else db.get_polling_interval_minutes(
+        settings.SYNC_INTERVAL_MINUTES
+    )
+    if interval < 1:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "interval_minutes must be at least 1")
+
     db.set_polling_enabled(body.enabled)
-    _set_polling_job(body.enabled)
-    return {"enabled": body.enabled}
+    db.set_polling_interval_minutes(interval)
+    _set_polling_job(body.enabled, interval)
+    return {"enabled": body.enabled, "interval_minutes": interval}
 
 
 @app.post("/v1/webhooks/hevy")
@@ -304,14 +321,22 @@ async def hevy_webhook(request: Request, background_tasks: BackgroundTasks):
 
 
 @app.get("/v1/logs", dependencies=[Depends(verify_basic_auth)])
-async def get_logs():
+async def get_logs(source: str | None = None):
+    """source: filter to "webhook", "polling", or "manual"; omit for all.
+    Entries logged before this field existed have no "source" key and are
+    only returned when no filter is applied."""
     with log_lock:
+        logs = list(memory_logs)
         if settings.PERSIST_LOGS and os.path.exists(LOGS_FILE):
             try:
-                return json.loads(open(LOGS_FILE).read())
+                with open(LOGS_FILE) as f:
+                    logs = json.loads(f.read())
             except Exception:
                 pass
-        return list(memory_logs)
+
+    if source is not None:
+        logs = [entry for entry in logs if entry.get("source") == source]
+    return logs
 
 
 @app.get("/v1/mappings/unmapped", dependencies=[Depends(verify_basic_auth)])

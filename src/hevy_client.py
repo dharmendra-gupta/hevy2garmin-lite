@@ -137,14 +137,15 @@ def delete_webhook_subscription() -> None:
 
 
 def parse_webhook_payload(raw: dict) -> dict | None:
-    """Parses the POST body Hevy sends to our webhook endpoint. Only
-    workout.created is currently supported by Hevy — anything else is
-    ignored (returns None) rather than guessed at."""
-    if raw.get("event") != "workout.created":
+    """Parses the POST body Hevy sends to our webhook endpoint. Confirmed
+    live 2026-08-02 via a temp webhook receiver: the real payload is just
+    {"workoutId": "<uuid>"} — no "event" field, camelCase key, no nested
+    workout object. Hevy only ever fires this webhook for workout.created,
+    so there's no event-type discriminator to check."""
+    workout_id = raw.get("workoutId")
+    if not workout_id:
         return None
-    workout = raw.get("workout")
-    workout_id = (workout or {}).get("id") or raw.get("workout_id") or raw.get("id")
-    return {"workout_id": workout_id, "workout": workout}
+    return {"workout_id": workout_id, "workout": None}
 
 
 def ensure_webhook_registered(url: str, auth_token: str) -> None:

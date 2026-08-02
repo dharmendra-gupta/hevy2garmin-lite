@@ -2,71 +2,226 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Hevy2Garmin Lite</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIiB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiI+CiAgPGcgdHJhbnNmb3JtPSJyb3RhdGUoLTQwIDUwIDUwKSI+CiAgICA8cmVjdCB4PSI1MCIgeT0iNDciIHdpZHRoPSI0MiIgaGVpZ2h0PSI2IiByeD0iMyIgZmlsbD0iI0Q2NDcwRiI+PC9yZWN0PgogICAgPHJlY3QgeD0iODYiIHk9IjM5IiB3aWR0aD0iMTAiIGhlaWdodD0iMjIiIHJ4PSIzIiBmaWxsPSIjRDY0NzBGIj48L3JlY3Q+CiAgPC9nPgogIDxjaXJjbGUgY3g9IjUwIiBjeT0iNTAiIHI9IjI3IiBmaWxsPSJub25lIiBzdHJva2U9IiMxNTE4MUIiIHN0cm9rZS13aWR0aD0iNiI+PC9jaXJjbGU+CiAgPGcgdHJhbnNmb3JtPSJyb3RhdGUoLTQwIDUwIDUwKSI+CiAgICA8cmVjdCB4PSI1MCIgeT0iNDcuNSIgd2lkdGg9IjI0IiBoZWlnaHQ9IjUiIHJ4PSIyLjUiIGZpbGw9IiMxNTE4MUIiPjwvcmVjdD4KICA8L2c+CiAgPHJlY3QgeD0iNDciIHk9IjIyIiB3aWR0aD0iNiIgaGVpZ2h0PSI3IiByeD0iMiIgZmlsbD0iIzE1MTgxQiI+PC9yZWN0PgogIDxyZWN0IHg9IjIxIiB5PSI0NyIgd2lkdGg9IjciIGhlaWdodD0iNiIgcng9IjIiIGZpbGw9IiMxNTE4MUIiPjwvcmVjdD4KICA8cmVjdCB4PSI0NyIgeT0iNzEiIHdpZHRoPSI2IiBoZWlnaHQ9IjciIHJ4PSIyIiBmaWxsPSIjMTUxODFCIj48L3JlY3Q+CiAgPHJlY3QgeD0iNzIiIHk9IjQ3IiB3aWR0aD0iNyIgaGVpZ2h0PSI2IiByeD0iMiIgZmlsbD0iIzE1MTgxQiI+PC9yZWN0PgogIDxjaXJjbGUgY3g9IjUwIiBjeT0iNTAiIHI9IjQiIGZpbGw9IiMxNTE4MUIiPjwvY2lyY2xlPgo8L3N2Zz4=">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  body { font-family: -apple-system, sans-serif; max-width: 780px; margin: 2rem auto; padding: 0 1rem; color: #222; }
-  .brand { display: flex; align-items: center; gap: 0.6rem; }
+  :root {
+    --bg-color: #100c0a;
+    --glass-bg: rgba(32, 25, 21, 0.7);
+    --glass-border: rgba(255, 255, 255, 0.09);
+    --text-primary: #f6f1ec;
+    --text-secondary: #a89d93;
+    --accent-primary: #D6470F;
+    --accent-hover: #b93a0a;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    background-image:
+      radial-gradient(at 0% 0%, hsla(20, 70%, 9%, 1) 0, transparent 55%),
+      radial-gradient(at 55% 0%, hsla(14, 75%, 20%, 1) 0, transparent 50%),
+      radial-gradient(at 100% 10%, hsla(32, 55%, 16%, 1) 0, transparent 50%);
+    background-attachment: fixed;
+    padding: 2rem 1rem;
+  }
+
+  .container { width: 100%; max-width: 840px; display: flex; flex-direction: column; gap: 1.5rem; }
+
+  .glass-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    padding: 1.75rem;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  }
+
+  .brand { display: flex; align-items: center; gap: 0.9rem; justify-content: center; text-align: center; flex-direction: column; margin-bottom: 0.25rem; }
+  .brand .icon-row { display: flex; align-items: center; gap: 0.75rem; }
   .brand svg { flex: 0 0 auto; }
-  h1 { font-size: 1.4rem; margin: 0; }
-  section { margin-bottom: 2rem; padding: 1rem; border: 1px solid #ddd; border-radius: 8px; }
-  button { padding: 0.5rem 1rem; cursor: pointer; }
+  .brand h1 {
+    font-size: 2rem; font-weight: 700;
+    background: linear-gradient(135deg, #ff9a5c, var(--accent-primary));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  }
+  .brand p { color: var(--text-secondary); font-size: 0.95rem; }
+
+  h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 1rem; }
+
+  .status-row {
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;
+    padding: 1.25rem; background: rgba(0, 0, 0, 0.2); border-radius: 14px; margin-bottom: 1rem;
+  }
+  .status-indicator { display: flex; align-items: center; gap: 0.9rem; }
+  .status-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background-color: var(--text-secondary); box-shadow: 0 0 10px var(--text-secondary);
+    transition: background-color 0.3s ease, box-shadow 0.3s ease; flex: 0 0 auto;
+  }
+  .status-dot.authenticated { background-color: var(--success); box-shadow: 0 0 15px var(--success); }
+  .status-dot.mfa { background-color: var(--warning); box-shadow: 0 0 15px var(--warning); animation: pulse 1.5s infinite; }
+  .status-dot.error { background-color: var(--danger); box-shadow: 0 0 15px var(--danger); }
+  @keyframes pulse { 0% { transform: scale(0.95); opacity: 0.7; } 50% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(0.95); opacity: 0.7; } }
+  .status-text { font-weight: 600; font-size: 1.05rem; }
+  .status-subtext { font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.15rem; }
+
+  .btn {
+    background: var(--accent-primary); color: white; border: none;
+    padding: 0.6rem 1.2rem; border-radius: 10px; font-size: 0.9rem; font-weight: 600;
+    cursor: pointer; transition: all 0.15s ease; outline: none; font-family: inherit;
+  }
+  .btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
+  .btn:disabled { background: var(--text-secondary); cursor: not-allowed; opacity: 0.5; transform: none; }
+  .btn-outline { background: transparent; border: 1px solid var(--glass-border); color: var(--text-primary); }
+  .btn-outline:hover { background: rgba(255, 255, 255, 0.08); }
+  .btn-row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+
+  .field-row { display: flex; align-items: center; gap: 0.6rem; margin-top: 1rem; flex-wrap: wrap; font-size: 0.9rem; color: var(--text-secondary); }
+  input[type="text"], input[type="number"], select {
+    background: rgba(0, 0, 0, 0.25); border: 1px solid var(--glass-border); color: var(--text-primary);
+    padding: 0.5rem 0.75rem; border-radius: 8px; font-size: 0.9rem; outline: none;
+    font-family: inherit; transition: border-color 0.2s;
+  }
+  input:focus, select:focus { border-color: var(--accent-primary); }
+  input[type="number"] { width: 4.5rem; }
+  input[type="checkbox"] { accent-color: var(--accent-primary); width: 1rem; height: 1rem; }
+
+  .mfa-box { display: none; margin-top: 1.25rem; }
+  .mfa-box .label { color: var(--warning); font-weight: 600; font-size: 0.9rem; margin-bottom: 0.6rem; }
+
   table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-  th, td { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid #eee; }
-  .ok { color: #1a7f37; } .bad { color: #c62828; }
-  pre { background: #f6f8fa; padding: 0.75rem; overflow-x: auto; font-size: 0.8rem; }
+  th, td { text-align: left; padding: 0.6rem 0.5rem; border-bottom: 1px solid var(--glass-border); }
+  th { color: var(--text-secondary); font-weight: 600; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.03em; }
+  tr:last-child td { border-bottom: none; }
+  .empty-row td { color: var(--text-secondary); text-align: center; padding: 1.5rem; }
+
+  .ok { color: var(--success); } .bad { color: var(--danger); }
+
+  .logs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem; }
+  .logs-container { background: rgba(0, 0, 0, 0.25); border-radius: 14px; max-height: 340px; overflow-y: auto; border: 1px solid var(--glass-border); }
+  .log-item { padding: 0.9rem 1.1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+  .log-item:last-child { border-bottom: none; }
+  .log-time { font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.4rem; }
+  .source-tag { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 8px; font-size: 0.68rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; margin-right: 0.5rem; }
+  .source-webhook { background: rgba(59, 130, 246, 0.18); color: #60a5fa; }
+  .source-polling { background: rgba(167, 139, 250, 0.18); color: #a78bfa; }
+  .source-manual { background: rgba(245, 158, 11, 0.18); color: var(--warning); }
+  .log-status { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 8px; font-size: 0.68rem; font-weight: 600; text-transform: uppercase; }
+  .log-status.success { background: rgba(16, 185, 129, 0.18); color: var(--success); }
+  .log-status.failed, .log-status.no_watch_match { background: rgba(239, 68, 68, 0.18); color: var(--danger); }
+  .log-detail { font-size: 0.82rem; color: var(--text-secondary); margin-top: 0.4rem; }
+
+  .toast {
+    position: fixed; bottom: 1.5rem; right: 1.5rem;
+    background: var(--glass-bg); backdrop-filter: blur(12px); border: 1px solid var(--glass-border);
+    padding: 0.9rem 1.3rem; border-radius: 12px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    transform: translateY(100px); opacity: 0;
+    transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55); z-index: 1000; font-size: 0.9rem;
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
 </style>
 </head>
 <body>
-<div class="brand">
-  <svg viewBox="0 0 100 100" width="28" height="28" aria-hidden="true">
-    <g transform="rotate(-40 50 50)">
-      <rect x="50" y="47" width="42" height="6" rx="3" fill="#D6470F"></rect>
-      <rect x="86" y="39" width="10" height="22" rx="3" fill="#D6470F"></rect>
-    </g>
-    <circle cx="50" cy="50" r="27" fill="none" stroke="#15181B" stroke-width="6"></circle>
-    <g transform="rotate(-40 50 50)">
-      <rect x="50" y="47.5" width="24" height="5" rx="2.5" fill="#15181B"></rect>
-    </g>
-    <rect x="47" y="22" width="6" height="7" rx="2" fill="#15181B"></rect>
-    <rect x="21" y="47" width="7" height="6" rx="2" fill="#15181B"></rect>
-    <rect x="47" y="71" width="6" height="7" rx="2" fill="#15181B"></rect>
-    <rect x="72" y="47" width="7" height="6" rx="2" fill="#15181B"></rect>
-    <circle cx="50" cy="50" r="4" fill="#15181B"></circle>
-  </svg>
-  <h1>Hevy2Garmin Lite</h1>
+<div class="container">
+
+  <div class="brand">
+    <div class="icon-row">
+      <svg viewBox="0 0 100 100" width="40" height="40" aria-hidden="true">
+        <g transform="rotate(-40 50 50)">
+          <rect x="50" y="47" width="42" height="6" rx="3" fill="#D6470F"></rect>
+          <rect x="86" y="39" width="10" height="22" rx="3" fill="#D6470F"></rect>
+        </g>
+        <circle cx="50" cy="50" r="27" fill="none" stroke="#f6f1ec" stroke-width="6"></circle>
+        <g transform="rotate(-40 50 50)">
+          <rect x="50" y="47.5" width="24" height="5" rx="2.5" fill="#f6f1ec"></rect>
+        </g>
+        <rect x="47" y="22" width="6" height="7" rx="2" fill="#f6f1ec"></rect>
+        <rect x="21" y="47" width="7" height="6" rx="2" fill="#f6f1ec"></rect>
+        <rect x="47" y="71" width="6" height="7" rx="2" fill="#f6f1ec"></rect>
+        <rect x="72" y="47" width="7" height="6" rx="2" fill="#f6f1ec"></rect>
+        <circle cx="50" cy="50" r="4" fill="#f6f1ec"></circle>
+      </svg>
+      <h1>Hevy2Garmin Lite</h1>
+    </div>
+    <p>Enriches your watch activity with Hevy's exercise names, sets, reps, and weights</p>
+  </div>
+
+  <div class="glass-panel">
+    <h2>Status</h2>
+    <div class="status-row">
+      <div class="status-indicator">
+        <div id="statusDot" class="status-dot"></div>
+        <div>
+          <div id="statusText" class="status-text">Checking status…</div>
+          <div id="statusSubtext" class="status-subtext"></div>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-outline" onclick="syncNow()">Sync Now</button>
+        <button id="loginBtn" class="btn" onclick="triggerLogin()">Login to Garmin</button>
+      </div>
+    </div>
+
+    <div id="mfaBox" class="mfa-box">
+      <div class="label">Multi-Factor Authentication Required</div>
+      <div class="btn-row">
+        <input type="text" id="mfaCode" placeholder="6-digit code" maxlength="6" autocomplete="off">
+        <button class="btn" onclick="submitMfa()">Submit</button>
+      </div>
+    </div>
+
+    <div class="field-row">
+      <label><input type="checkbox" id="pollingToggle" onchange="togglePolling()"> Periodic polling (safety net for edits/deletes)</label>
+      <span>every <input type="number" id="pollingInterval" min="1" step="1" onchange="togglePolling()"> min</span>
+    </div>
+    <div class="field-row" style="margin-top: 0.5rem;">
+      <span>Hevy API key: <span id="hevyKeyStatus"></span></span>
+      <span>·</span>
+      <span>Webhook registered: <span id="webhookStatus"></span></span>
+      <span>·</span>
+      <span>Dry run: <span id="dryRunStatus"></span></span>
+    </div>
+  </div>
+
+  <div class="glass-panel">
+    <h2>Unmapped Exercises</h2>
+    <table id="unmapped"><thead><tr><th>Exercise</th><th>Occurrences</th><th>Category</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="glass-panel">
+    <h2>Recent Sync History</h2>
+    <table id="history"><thead><tr><th>Workout</th><th>Status</th><th>Synced At</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="glass-panel">
+    <div class="logs-header">
+      <h2 style="margin-bottom: 0;">Logs</h2>
+      <select id="logSourceFilter" onchange="refreshLogs()">
+        <option value="">All sources</option>
+        <option value="webhook">Webhook</option>
+        <option value="polling">Polling</option>
+        <option value="manual">Manual</option>
+      </select>
+    </div>
+    <div id="logsContainer" class="logs-container"></div>
+  </div>
+
 </div>
 
-<section>
-  <h2>Status</h2>
-  <div id="status">loading…</div>
-  <button onclick="syncNow()">Sync Now (manual reconciliation)</button>
-  <button onclick="triggerLogin()">Login to Garmin</button>
-  <span id="loginMsg"></span>
-  <div style="margin-top: 0.75rem;">
-    <label><input type="checkbox" id="pollingToggle" onchange="togglePolling()"> Periodic polling (safety net for edits/deletes)</label>
-  </div>
-  <div id="mfaBox" style="display:none; margin-top: 0.75rem;">
-    <strong>MFA code requested:</strong>
-    <input type="text" id="mfaCode" placeholder="6-digit code">
-    <button onclick="submitMfa()">Submit</button>
-  </div>
-</section>
-
-<section>
-  <h2>Unmapped Exercises</h2>
-  <table id="unmapped"><thead><tr><th>Exercise</th><th>Occurrences</th><th>Category</th><th></th></tr></thead><tbody></tbody></table>
-</section>
-
-<section>
-  <h2>Recent Sync History</h2>
-  <table id="history"><thead><tr><th>Workout</th><th>Status</th><th>Synced At</th><th></th></tr></thead><tbody></tbody></table>
-</section>
-
-<section>
-  <h2>Logs</h2>
-  <pre id="logs"></pre>
-</section>
+<div id="toast" class="toast"><span id="toastMsg"></span></div>
 
 <script>
 async function j(url, opts) {
@@ -74,55 +229,105 @@ async function j(url, opts) {
   return r.json();
 }
 
+function showToast(message) {
+  const toast = document.getElementById('toast');
+  document.getElementById('toastMsg').textContent = message;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 3000);
+}
+
 async function refresh() {
   const s = await j('/v1/status');
   const authState = s.garmin_auth.status;
-  document.getElementById('status').innerHTML = `
-    <div>Garmin auth: <span class="${authState === 'authenticated' ? 'ok' : 'bad'}">${authState}</span> — ${s.garmin_auth.message}</div>
-    <div>Hevy API key configured: ${s.hevy_api_key_configured}</div>
-    <div>Hevy webhook registered: ${s.webhook_registered}</div>
-    <div>Dry run: ${s.dry_run}</div>
-    <div>Last run: ${JSON.stringify(s.last_run)}</div>
-  `;
+
+  const dot = document.getElementById('statusDot');
+  dot.className = 'status-dot' + (authState === 'authenticated' ? ' authenticated' : authState === 'mfa_required' ? ' mfa' : authState === 'unauthenticated' ? ' error' : '');
+  document.getElementById('statusText').textContent = authState.charAt(0).toUpperCase() + authState.slice(1).replace(/_/g, ' ');
+  document.getElementById('statusSubtext').textContent = s.garmin_auth.message;
+
+  document.getElementById('hevyKeyStatus').innerHTML = s.hevy_api_key_configured ? '<span class="ok">configured</span>' : '<span class="bad">missing</span>';
+  document.getElementById('webhookStatus').innerHTML = s.webhook_registered ? '<span class="ok">yes</span>' : '<span class="bad">no</span>';
+  document.getElementById('dryRunStatus').textContent = s.dry_run;
+
   document.getElementById('mfaBox').style.display = (authState === 'mfa_required') ? 'block' : 'none';
+  document.getElementById('loginBtn').style.display = (authState === 'authenticated') ? 'none' : 'inline-block';
   document.getElementById('pollingToggle').checked = s.polling_enabled;
+  document.getElementById('pollingInterval').value = s.sync_interval_minutes;
 
   const categories = await j('/v1/mappings/categories');
   const unmapped = await j('/v1/mappings/unmapped');
-  const tbody = document.querySelector('#unmapped tbody');
-  tbody.innerHTML = '';
+  const utbody = document.querySelector('#unmapped tbody');
+  utbody.innerHTML = unmapped.length ? '' : '<tr class="empty-row"><td colspan="4">Nothing unmapped — every synced exercise resolved cleanly.</td></tr>';
   for (const row of unmapped) {
     const tr = document.createElement('tr');
     const select = categories.map(c => `<option value="${c}">${c}</option>`).join('');
     tr.innerHTML = `<td>${row.exercise_name}</td><td>${row.occurrences}</td>
       <td><select id="cat-${row.template_id}">${select}</select></td>
-      <td><button onclick="saveMapping('${row.template_id}')">Save</button></td>`;
-    tbody.appendChild(tr);
+      <td><button class="btn btn-outline" onclick="saveMapping('${row.template_id}')">Save</button></td>`;
+    utbody.appendChild(tr);
   }
 
   const history = await j('/v1/sync-history');
   const htbody = document.querySelector('#history tbody');
-  htbody.innerHTML = '';
+  htbody.innerHTML = history.length ? '' : '<tr class="empty-row"><td colspan="4">No workouts synced yet.</td></tr>';
   for (const row of history) {
     const tr = document.createElement('tr');
     const canLearn = row.sync_status === 'synced';
-    tr.innerHTML = `<td>${row.hevy_workout_id}</td><td>${row.sync_status}</td><td>${row.synced_at}</td>
-      <td>${canLearn ? `<button onclick="learnFromGarmin('${row.hevy_workout_id}', this)">Re-check Garmin</button>` : ''}</td>`;
+    const statusClass = row.sync_status === 'synced' ? 'ok' : (row.sync_status === 'failed' ? 'bad' : '');
+    tr.innerHTML = `<td>${row.hevy_workout_id}</td><td class="${statusClass}">${row.sync_status}</td><td>${row.synced_at}</td>
+      <td>${canLearn ? `<button class="btn btn-outline" onclick="learnFromGarmin('${row.hevy_workout_id}', this)">Re-check Garmin</button>` : ''}</td>`;
     htbody.appendChild(tr);
   }
 
-  const logs = await j('/v1/logs');
-  document.getElementById('logs').textContent = JSON.stringify(logs, null, 2);
+  await refreshLogs();
+}
+
+function describeLogDetail(entry) {
+  const d = entry.detail || {};
+  if (entry.source === 'webhook') {
+    let text = `workout ${d.workout_id || '?'} (attempt ${d.attempt ?? 0})`;
+    if (d.error) text += ` — ${d.error}`;
+    return text;
+  }
+  const parts = [];
+  for (const key of ['synced', 'no_match', 'skipped_idempotent', 'failed', 'source_deleted']) {
+    if (d[key]) parts.push(`${key}: ${d[key]}`);
+  }
+  let text = parts.length ? parts.join(', ') : 'nothing to sync';
+  if (d.errors && d.errors.length) text += ` — ${d.errors.join('; ')}`;
+  return text;
+}
+
+async function refreshLogs() {
+  const source = document.getElementById('logSourceFilter').value;
+  const logs = await j('/v1/logs' + (source ? `?source=${source}` : ''));
+  const container = document.getElementById('logsContainer');
+  if (!logs.length) {
+    container.innerHTML = '<div class="empty-row" style="padding: 1.5rem;">No logs yet.</div>';
+    return;
+  }
+  container.innerHTML = logs.map(entry => {
+    const src = entry.source || 'unknown';
+    const date = new Date(entry.timestamp).toLocaleString();
+    return `
+      <div class="log-item">
+        <div class="log-time">${date}</div>
+        <span class="source-tag source-${src}">${src}</span>
+        <span class="log-status ${entry.status}">${entry.status}</span>
+        <div class="log-detail">${describeLogDetail(entry)}</div>
+      </div>`;
+  }).join('');
 }
 
 async function syncNow() {
   await j('/v1/sync-now', { method: 'POST' });
+  showToast('Sync cycle triggered');
   refresh();
 }
 
 async function triggerLogin() {
   const r = await j('/v1/auth/login', { method: 'POST' });
-  document.getElementById('loginMsg').textContent = r.message || r.status;
+  showToast(r.message || r.status);
   setTimeout(refresh, 1000);
 }
 
@@ -133,15 +338,18 @@ async function submitMfa() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ code }),
   });
+  document.getElementById('mfaCode').value = '';
+  showToast('MFA code submitted');
   refresh();
 }
 
 async function togglePolling() {
   const enabled = document.getElementById('pollingToggle').checked;
+  const interval_minutes = parseInt(document.getElementById('pollingInterval').value, 10) || 15;
   await j('/v1/settings/polling', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enabled }),
+    body: JSON.stringify({ enabled, interval_minutes }),
   });
   refresh();
 }
@@ -151,7 +359,7 @@ async function learnFromGarmin(workoutId, btn) {
   btn.textContent = 'Checking…';
   const r = await j(`/v1/mappings/learn-from-garmin/${workoutId}`, { method: 'POST' });
   const count = (r.learned || []).length;
-  btn.textContent = count > 0 ? `Learned ${count}` : 'No changes found';
+  showToast(count > 0 ? `Learned ${count} exercise mapping(s)` : 'No changes found');
   refresh();
 }
 
@@ -162,6 +370,7 @@ async function saveMapping(templateId) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ template_id: templateId, category }),
   });
+  showToast('Mapping saved');
   refresh();
 }
 

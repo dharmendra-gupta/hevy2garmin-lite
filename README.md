@@ -74,7 +74,7 @@ All configuration is via `.env` (see `.env.example` for the full annotated templ
 | `PUBLIC_BASE_URL` | — | Publicly reachable URL for webhook registration; leave blank to rely on polling only |
 | `WEBHOOK_RETRY_DELAYS_MINUTES` | `5,10,15` | Retry schedule if no matching watch activity is found yet |
 | `MATCH_TOLERANCE_MINUTES` | `15` | Max start-time drift allowed between a Hevy workout and a Garmin activity |
-| `SYNC_INTERVAL_MINUTES` | `15` | Polling interval, when polling is enabled |
+| `SYNC_INTERVAL_MINUTES` | `15` | Fallback polling interval — live-editable from the dashboard once set (persisted in SQLite, not `.env`) |
 | `POLLING_ENABLED_DEFAULT` | `false` | Polling is an off-by-default reconciliation safety net, toggleable live from the dashboard |
 | `API_BASIC_AUTH_USERNAME` / `API_BASIC_AUTH_PASSWORD` | `admin` / `change_me` | Dashboard + API auth — change this |
 | `DRY_RUN` | `false` | Match and build payloads without pushing to Garmin |
@@ -122,9 +122,9 @@ All endpoints except the webhook and health check use **HTTP Basic Auth** (`API_
 | `POST` | `/v1/auth/login` | Starts a background Garmin login if not already authenticated/pending |
 | `POST` | `/v1/auth/mfa` | Body `{"code": "123456"}` — submits a pending MFA code |
 | `POST` | `/v1/sync-now` | Runs a full reconciliation cycle immediately |
-| `GET`/`POST` | `/v1/settings/polling` | Read/toggle polling; `POST` body `{"enabled": bool}` |
+| `GET`/`POST` | `/v1/settings/polling` | Read/toggle polling and its interval; `POST` body `{"enabled": bool, "interval_minutes": int}` |
 | `POST` | `/v1/webhooks/hevy` | Hevy's own webhook — authenticated via `Authorization` header matching `HEVY_WEBHOOK_AUTH_TOKEN`, not Basic Auth |
-| `GET` | `/v1/logs` | Recent sync log entries |
+| `GET` | `/v1/logs` | Recent log entries; optional `?source=webhook\|polling\|manual` filter |
 | `GET` | `/v1/mappings/unmapped` | Exercises with no resolved mapping yet |
 | `GET` | `/v1/mappings/categories` | Valid Garmin category strings, for the mapping UI dropdown |
 | `POST` | `/v1/mappings` | Body `{"template_id", "category", "note"}` — hand-assign a category-only mapping |

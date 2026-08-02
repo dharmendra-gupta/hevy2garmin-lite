@@ -20,7 +20,7 @@ Not narrative. `grep` this file for a keyword and read only the matching block i
 | `src/sync.py` | Orchestrator: `sync_one_workout()` is the shared core, 3 callers |
 | `src/main.py` | FastAPI app, all HTTP routes, scheduler wiring, webhook receiver |
 | `src/db.py` | SQLite schema + all queries (no ORM) |
-| `src/templates/index.html` | The entire dashboard UI (single file, vanilla JS, no build step) |
+| `src/templates/index.html` | The entire dashboard UI (single file, vanilla JS, no build step) — dark glassmorphic theme matching `garmin-scale-sync`'s (added 2026-08-02), own `#D6470F` accent instead of GSS's blue/purple. Loads Inter from Google Fonts CDN client-side (browser-only dependency, not a build step) |
 | `scripts/spike_push_test.py` | Phase G live validation push (`docker compose run --rm spike`) |
 | `scripts/spike_learn_readback.py` | Phase 0 spike for the "learn from Garmin" feature — push/read subcommands, throwaway once feature is fully E2E-verified |
 | `scripts/trigger_garmin_reauth.py` | Standalone credential bootstrap, superseded by `app`'s own self-heal |
@@ -43,7 +43,7 @@ HEVY_WEBHOOK_AUTH_TOKEN: str = ""
 PUBLIC_BASE_URL: str = ""
 WEBHOOK_RETRY_DELAYS_MINUTES: str = "5,10,15"                # comma string; .webhook_retry_delays_minutes property -> list[int]
 MATCH_TOLERANCE_MINUTES: int = 15
-SYNC_INTERVAL_MINUTES: int = 15
+SYNC_INTERVAL_MINUTES: int = 15               # fallback default only — live value is dashboard/sync_meta-controlled, see below
 POLLING_ENABLED_DEFAULT: bool = False
 WORKING_SET_SECONDS: int = 40
 WARMUP_SET_SECONDS: int = 25
@@ -79,9 +79,9 @@ Docker-compose-only var (not read by the app itself): `GARMIN_TOKEN_HOST_DIR` �
 | POST | `/v1/auth/login` | Basic | Mirrors garmin-scale-sync's `initiate_login()`; no-ops if already authenticated/mfa-pending |
 | POST | `/v1/auth/mfa` | Basic | Body `{"code": str}` |
 | POST | `/v1/sync-now` | Basic | Runs `run_sync_cycle()` regardless of polling toggle state |
-| GET/POST | `/v1/settings/polling` | Basic | Body `{"enabled": bool}` on POST; persisted in `sync_meta` |
-| POST | `/v1/webhooks/hevy` | `Authorization` header == `HEVY_WEBHOOK_AUTH_TOKEN` (not Basic — Hevy's servers call this, not a browser) | Body must have `event: "workout.created"`; anything else → `{"status":"ignored"}` |
-| GET | `/v1/logs` | Basic | |
+| GET/POST | `/v1/settings/polling` | Basic | Body `{"enabled": bool, "interval_minutes": int \| null}` on POST — `interval_minutes` omitted keeps the current value; `< 1` → 400. Both persisted in `sync_meta`, reflected live by rescheduling the APScheduler job (remove-then-re-add, so an interval change takes effect even while already enabled) |
+| POST | `/v1/webhooks/hevy` | `Authorization` header == `HEVY_WEBHOOK_AUTH_TOKEN` (not Basic — Hevy's servers call this, not a browser) | Body is `{"workoutId": "<uuid>"}` (confirmed live 2026-08-02 — see below); empty/missing `workoutId` → `{"status":"ignored"}` |
+| GET | `/v1/logs` | Basic | Optional `?source=webhook\|polling\|manual` query param filters by trigger source; omit for all. Entries logged before this field existed have no `source` key and are only returned unfiltered |
 | GET | `/v1/mappings/unmapped` | Basic | |
 | GET | `/v1/mappings/categories` | Basic | Sorted list of valid category strings |
 | POST | `/v1/mappings` | Basic | Body `{"template_id", "category", "note"}` — category-only, hand-entered |
@@ -98,10 +98,10 @@ def sync_one_workout(db, mapper, client, workout_id: str, workout: dict,
                       breaker: SetPushCircuitBreaker, dry_run: bool = False) -> str:
     # returns: "synced" | "no_watch_match" | "skipped_idempotent" | "failed"
 ```
-Three callers:
-1. `run_sync_cycle(db, mapper, dry_run)` — polling path, loops Hevy events, handles updated/deleted
-2. `sync_workout_by_id(db, mapper, workout_id, dry_run)` — webhook path, always re-fetches fresh via `hevy_client.fetch_workout()`
-3. Dashboard "Sync Now" → `main._scheduled_sync()` → `run_sync_cycle()`
+Three callers, each tagged with a distinct `/v1/logs` `source` (added 2026-08-02 — see HTTP routes and Known gotchas):
+1. `run_sync_cycle(db, mapper, dry_run)` via `main._scheduled_sync()` (default `source="polling"`) — periodic timer path, loops Hevy events, handles updated/deleted
+2. `sync_workout_by_id(db, mapper, workout_id, dry_run)` — webhook path (`source="webhook"`), always re-fetches fresh via `hevy_client.fetch_workout()`
+3. Dashboard "Sync Now" / `POST /v1/sync-now` → `main._scheduled_sync(source="manual")` → `run_sync_cycle()` — same function as #1, different `source` tag so logs distinguish a periodic run from a manual click
 
 ---
 
@@ -165,10 +165,12 @@ Resolution order: user override (`data/exercise_mappings.json`) → bundled cata
 | `register_webhook(url, token)` | `POST /v1/webhook-subscription` | Body `{"url", "auth_token"}` |
 | `get_webhook_subscription()` | `GET /v1/webhook-subscription` | `None` on 404 |
 | `ensure_webhook_registered(url, token)` | idempotent wrapper | No-ops if already pointing at `url` |
-| `parse_webhook_payload(raw)` | pure fn | Only accepts `event == "workout.created"`; else `None` |
+| `parse_webhook_payload(raw)` | pure fn | Extracts `raw["workoutId"]`; `None` if missing/empty. No `event` field exists in the real payload — see below |
 | `parse_hevy_timestamp(raw)` | pure fn | ISO 8601 `Z`-suffixed → UTC-aware `datetime` |
 
-Auth header: `{"api-key": HEVY_API_KEY}`. Base URL: `https://api.hevyapp.com`. Webhook endpoint shapes corroborated across third-party integrations, **not Hevy's own official docs** — unverified against a live response.
+Auth header: `{"api-key": HEVY_API_KEY}`. Base URL: `https://api.hevyapp.com`.
+
+**Webhook payload shape — confirmed live 2026-08-02** (captured via a temp webhook receiver on a real Hevy account, request forwarded from `cf-connecting-ip` on Cloudflare, `user-agent: node-fetch`): the body is exactly `{"workoutId": "<uuid>"}` — no `event` field, camelCase key, no nested `workout` object. The originally assumed shape (an `{"event": "workout.created", "workout": {...}}` envelope, "corroborated across third-party integrations, not Hevy's own official docs") was wrong — every real webhook call was silently parsed to `None` and `{"status":"ignored"}` returned, so **no webhook had ever actually synced a workout before this fix**, despite delivery, auth token, and registration all working correctly. Fixed in `parse_webhook_payload` (`src/hevy_client.py`) — it no longer gates on an `event` field at all, since Hevy apparently only ever sends this one shape for `workout.created` (consistent with it being the only event Hevy fires).
 
 ---
 
@@ -187,7 +189,8 @@ synced_workouts(hevy_workout_id PK, garmin_activity_id UNIQUE, sync_status, cont
   -- sync_status: synced | no_watch_match | failed | source_deleted
 unmapped_exercises(template_id PK, exercise_name, first_seen_at, occurrences)
 sync_meta(key PK, value)
-  -- keys used: last_poll_timestamp, polling_enabled ("true"/"false" strings)
+  -- keys used: last_poll_timestamp, polling_enabled ("true"/"false" strings),
+  --            polling_interval_minutes (stringified int, default SYNC_INTERVAL_MINUTES)
 ```
 `Database` class wraps all queries — no raw SQL elsewhere in the codebase.
 
@@ -236,22 +239,25 @@ Measured idle RSS of the running `app` container: **~42–44MB** (`docker stats`
 - **`probability`, not `name`, gates exercise-identity rendering on watch-recorded activities.** The original assumption ("Garmin ignores pushed names regardless of validity") was wrong — confirmed live 2026-08-01. Always send `CONFIDENT_PROBABILITY`.
 - Never hand-guess a `fit_tool` subcategory name string — resolve dynamically or send `None`. A wrong guess 400s the *entire* atomic push.
 - Hevy webhook fires **only** on `workout.created` — never edits/deletes. Polling (`run_sync_cycle`) is what catches those.
+- **The real Hevy webhook body is `{"workoutId": "<uuid>"}`, not `{"event": "workout.created", "workout": {...}}`.** The original assumed shape was never real — confirmed live 2026-08-02, see the Hevy API surface section. If a future Hevy payload sample doesn't parse, check the actual raw body before guessing again; a wrong assumption here fails *silently* (`{"status":"ignored"}`, HTTP 200), not with an error.
+- **`docker logs` showing `Scheduler started` does not mean polling is on** — APScheduler's `BackgroundScheduler` always starts unconditionally (webhook retry jobs need it too); the actual interval polling job (`POLL_JOB_ID`) is only added if `db.get_polling_enabled(...)` is `True`. Check `GET /v1/status`'s `polling_enabled` field, not the presence of that log line.
+- `/v1/logs` entries carry a `source` field (`webhook` / `polling` / `manual`, added 2026-08-02) so the three `sync_one_workout()` callers are distinguishable — see that section above. `_scheduled_sync(source=...)` is shared by both the periodic timer (`"polling"`) and `POST /v1/sync-now` (`"manual"`); they're the same underlying `run_sync_cycle()` call, only the tag differs.
 - `POST /v1/auth/login` does **not** force-reset an already-cached client if status is `authenticated` — matches garmin-scale-sync's own no-op behavior, not a bug.
 - **A manual "Choose an Exercise" correction in Garmin's own UI nulls out `wktStepIndex`/`messageIndex`** on that set — confirmed live 2026-08-01. `learn.py` cannot join on those; it matches on `startTime` instead, which does survive.
 - `client.get_activity(id)` and `client.get_activities()` return `startTimeGMT` in **two different string formats** — see the Matching rule section above. Using `parse_garmin_gmt` on a `get_activity()` response (or vice versa) raises `ValueError`.
 
 ---
 
-## Test file → coverage map (`tests/`, 65 tests total, run via `docker compose run --rm test`)
+## Test file → coverage map (`tests/`, 66 tests total, run via `docker compose run --rm test`)
 
 | File | Covers |
 |---|---|
 | `test_matcher.py` | Overlap/drift/type matching, UTC-vs-local regression, back-to-back sessions, both `startTimeGMT` format parsers |
-| `test_db_idempotency.py` | Sync record CRUD, `UNIQUE` constraint, idempotent reruns, polling toggle persistence |
+| `test_db_idempotency.py` | Sync record CRUD, `UNIQUE` constraint, idempotent reruns, polling toggle + interval persistence |
 | `test_mapping.py` | Category+name resolution (incl. known Bench Press/Deadlift regression values), override precedence (now category+name), unmapped recording, non-hex ID validation, `_validate_category_name_pair` |
 | `test_learn.py` | `learn_mappings_from_garmin`: `startTime`-based matching, rejects invalid pairs, skips already-known template_ids, dedupes multi-set exercises |
 | `test_timeline.py` | Set ordering, rest placement, scale-clamp overflow guards |
-| `test_hevy_client.py` | `parse_webhook_payload` — only `workout.created` accepted |
+| `test_hevy_client.py` | `parse_webhook_payload` against the confirmed-live `{"workoutId": "<uuid>"}` shape; missing/empty `workoutId` ignored |
 | `test_config.py` | `WEBHOOK_RETRY_DELAYS_MINUTES` parsing |
 | `test_push_auth_normalization.py` | 401-normalization, `reraise=True` regression, strip-and-retry on Invalid Sub-Category |
 

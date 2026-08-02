@@ -93,3 +93,16 @@ def test_polling_enabled_roundtrip_and_overrides_default(db):
 
     db.set_polling_enabled(False)
     assert db.get_polling_enabled(default=True) is False
+
+
+def test_polling_interval_uses_default_until_explicitly_set(db):
+    assert db.get_polling_interval_minutes(default=15) == 15
+    assert db.get_polling_interval_minutes(default=30) == 30  # no row yet — default wins either way
+
+
+def test_polling_interval_roundtrip_and_overrides_default(db):
+    db.set_polling_interval_minutes(5)
+    assert db.get_polling_interval_minutes(default=15) == 5
+
+    db.set_polling_interval_minutes(60)
+    assert db.get_polling_interval_minutes(default=15) == 60

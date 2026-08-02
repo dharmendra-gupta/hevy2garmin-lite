@@ -165,3 +165,22 @@ class Database:
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 ("true" if enabled else "false",),
             )
+
+    # --- polling interval (default from SYNC_INTERVAL_MINUTES; dashboard-controlled) ---
+
+    def get_polling_interval_minutes(self, default: int) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM sync_meta WHERE key = 'polling_interval_minutes'"
+            ).fetchone()
+            if row is None:
+                return default
+            return int(row["value"])
+
+    def set_polling_interval_minutes(self, minutes: int) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO sync_meta (key, value) VALUES ('polling_interval_minutes', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (str(minutes),),
+            )
