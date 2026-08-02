@@ -76,6 +76,7 @@ All configuration is via `.env` (see `.env.example` for the full annotated templ
 | `MATCH_TOLERANCE_MINUTES` | `15` | Max start-time drift allowed between a Hevy workout and a Garmin activity |
 | `SYNC_INTERVAL_MINUTES` | `15` | Fallback polling interval — live-editable from the dashboard once set (persisted in SQLite, not `.env`) |
 | `POLLING_ENABLED_DEFAULT` | `false` | Polling is an off-by-default reconciliation safety net, toggleable live from the dashboard |
+| `WORKING_SET_SECONDS` / `WARMUP_SET_SECONDS` / `REST_BETWEEN_SETS_SECONDS` / `REST_BETWEEN_EXERCISES_SECONDS` | `40` / `25` / `75` / `120` | Fallback set-timeline estimation inputs — live-editable from the dashboard's Timeline Tuning panel once set (persisted in SQLite, not `.env`) |
 | `API_BASIC_AUTH_USERNAME` / `API_BASIC_AUTH_PASSWORD` | `admin` / `change_me` | Dashboard + API auth — change this |
 | `DRY_RUN` | `false` | Match and build payloads without pushing to Garmin |
 | `GARMIN_TOKEN_HOST_DIR` | `./.garminconnect` | Host path for the shared Garmin token volume |
@@ -123,6 +124,7 @@ All endpoints except the webhook and health check use **HTTP Basic Auth** (`API_
 | `POST` | `/v1/auth/mfa` | Body `{"code": "123456"}` — submits a pending MFA code |
 | `POST` | `/v1/sync-now` | Runs a full reconciliation cycle immediately |
 | `GET`/`POST` | `/v1/settings/polling` | Read/toggle polling and its interval; `POST` body `{"enabled": bool, "interval_minutes": int}` |
+| `GET`/`POST` | `/v1/settings/timeline` | Read/set the set-timeline estimation inputs; `POST` body `{"working_set_seconds", "warmup_set_seconds", "rest_between_sets_seconds", "rest_between_exercises_seconds"}` |
 | `POST` | `/v1/webhooks/hevy` | Hevy's own webhook — authenticated via `Authorization` header matching `HEVY_WEBHOOK_AUTH_TOKEN`, not Basic Auth |
 | `GET` | `/v1/logs` | Recent log entries; optional `?source=webhook\|polling\|manual` filter |
 | `GET` | `/v1/mappings/unmapped` | Exercises with no resolved mapping yet |

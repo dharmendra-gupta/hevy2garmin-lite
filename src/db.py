@@ -184,3 +184,42 @@ class Database:
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (str(minutes),),
             )
+
+    # --- timeline synthesis tuning (defaults from Settings; dashboard-controlled) ---
+
+    def _get_meta_int(self, key: str, default: int) -> int:
+        with self._connect() as conn:
+            row = conn.execute("SELECT value FROM sync_meta WHERE key = ?", (key,)).fetchone()
+            return int(row["value"]) if row else default
+
+    def _set_meta_int(self, key: str, value: int) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO sync_meta (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, str(value)),
+            )
+
+    def get_working_set_seconds(self, default: int) -> int:
+        return self._get_meta_int("working_set_seconds", default)
+
+    def set_working_set_seconds(self, value: int) -> None:
+        self._set_meta_int("working_set_seconds", value)
+
+    def get_warmup_set_seconds(self, default: int) -> int:
+        return self._get_meta_int("warmup_set_seconds", default)
+
+    def set_warmup_set_seconds(self, value: int) -> None:
+        self._set_meta_int("warmup_set_seconds", value)
+
+    def get_rest_between_sets_seconds(self, default: int) -> int:
+        return self._get_meta_int("rest_between_sets_seconds", default)
+
+    def set_rest_between_sets_seconds(self, value: int) -> None:
+        self._set_meta_int("rest_between_sets_seconds", value)
+
+    def get_rest_between_exercises_seconds(self, default: int) -> int:
+        return self._get_meta_int("rest_between_exercises_seconds", default)
+
+    def set_rest_between_exercises_seconds(self, value: int) -> None:
+        self._set_meta_int("rest_between_exercises_seconds", value)

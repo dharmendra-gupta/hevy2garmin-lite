@@ -211,6 +211,13 @@ class PollingSetting(BaseModel):
     interval_minutes: int | None = None
 
 
+class TimelineSetting(BaseModel):
+    working_set_seconds: int
+    warmup_set_seconds: int
+    rest_between_sets_seconds: int
+    rest_between_exercises_seconds: int
+
+
 @app.get("/", response_class=HTMLResponse, dependencies=[Depends(verify_basic_auth)])
 async def dashboard():
     template_path = os.path.join(os.path.dirname(__file__), "templates", "index.html")
@@ -300,6 +307,35 @@ async def set_polling_setting(body: PollingSetting):
     db.set_polling_interval_minutes(interval)
     _set_polling_job(body.enabled, interval)
     return {"enabled": body.enabled, "interval_minutes": interval}
+
+
+@app.get("/v1/settings/timeline", dependencies=[Depends(verify_basic_auth)])
+async def get_timeline_setting():
+    return {
+        "working_set_seconds": db.get_working_set_seconds(settings.WORKING_SET_SECONDS),
+        "warmup_set_seconds": db.get_warmup_set_seconds(settings.WARMUP_SET_SECONDS),
+        "rest_between_sets_seconds": db.get_rest_between_sets_seconds(settings.REST_BETWEEN_SETS_SECONDS),
+        "rest_between_exercises_seconds": db.get_rest_between_exercises_seconds(settings.REST_BETWEEN_EXERCISES_SECONDS),
+    }
+
+
+@app.post("/v1/settings/timeline", dependencies=[Depends(verify_basic_auth)])
+async def set_timeline_setting(body: TimelineSetting):
+    values = {
+        "working_set_seconds": body.working_set_seconds,
+        "warmup_set_seconds": body.warmup_set_seconds,
+        "rest_between_sets_seconds": body.rest_between_sets_seconds,
+        "rest_between_exercises_seconds": body.rest_between_exercises_seconds,
+    }
+    for name, value in values.items():
+        if value < 0:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{name} must be at least 0")
+
+    db.set_working_set_seconds(body.working_set_seconds)
+    db.set_warmup_set_seconds(body.warmup_set_seconds)
+    db.set_rest_between_sets_seconds(body.rest_between_sets_seconds)
+    db.set_rest_between_exercises_seconds(body.rest_between_exercises_seconds)
+    return values
 
 
 @app.post("/v1/webhooks/hevy")

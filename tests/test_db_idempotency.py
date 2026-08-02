@@ -106,3 +106,28 @@ def test_polling_interval_roundtrip_and_overrides_default(db):
 
     db.set_polling_interval_minutes(60)
     assert db.get_polling_interval_minutes(default=15) == 60
+
+
+@pytest.mark.parametrize("getter,setter", [
+    ("get_working_set_seconds", "set_working_set_seconds"),
+    ("get_warmup_set_seconds", "set_warmup_set_seconds"),
+    ("get_rest_between_sets_seconds", "set_rest_between_sets_seconds"),
+    ("get_rest_between_exercises_seconds", "set_rest_between_exercises_seconds"),
+])
+def test_timeline_seconds_uses_default_until_explicitly_set(db, getter, setter):
+    assert getattr(db, getter)(default=40) == 40
+    assert getattr(db, getter)(default=99) == 99  # no row yet — default wins either way
+
+
+@pytest.mark.parametrize("getter,setter", [
+    ("get_working_set_seconds", "set_working_set_seconds"),
+    ("get_warmup_set_seconds", "set_warmup_set_seconds"),
+    ("get_rest_between_sets_seconds", "set_rest_between_sets_seconds"),
+    ("get_rest_between_exercises_seconds", "set_rest_between_exercises_seconds"),
+])
+def test_timeline_seconds_roundtrip_and_overrides_default(db, getter, setter):
+    getattr(db, setter)(11)
+    assert getattr(db, getter)(default=40) == 11
+
+    getattr(db, setter)(200)
+    assert getattr(db, getter)(default=40) == 200

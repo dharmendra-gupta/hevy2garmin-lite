@@ -38,12 +38,15 @@ def _content_hash(workout: dict) -> str:
     return hashlib.sha256(json.dumps(workout, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def _timeline_config_from_settings() -> TimelineConfig:
+def _timeline_config_from_settings(db: Database) -> TimelineConfig:
+    """Live values from sync_meta (dashboard-controlled), falling back to the
+    .env-derived Settings defaults if never explicitly set — same pattern as
+    the polling interval."""
     return TimelineConfig(
-        working_set_seconds=settings.WORKING_SET_SECONDS,
-        warmup_set_seconds=settings.WARMUP_SET_SECONDS,
-        rest_between_sets_seconds=settings.REST_BETWEEN_SETS_SECONDS,
-        rest_between_exercises_seconds=settings.REST_BETWEEN_EXERCISES_SECONDS,
+        working_set_seconds=db.get_working_set_seconds(settings.WORKING_SET_SECONDS),
+        warmup_set_seconds=db.get_warmup_set_seconds(settings.WARMUP_SET_SECONDS),
+        rest_between_sets_seconds=db.get_rest_between_sets_seconds(settings.REST_BETWEEN_SETS_SECONDS),
+        rest_between_exercises_seconds=db.get_rest_between_exercises_seconds(settings.REST_BETWEEN_EXERCISES_SECONDS),
     )
 
 
@@ -95,7 +98,7 @@ def sync_one_workout(
 
         payload = build_exercise_sets_payload(
             workout, activity_id, activity_start, activity_duration_s,
-            mapper, _timeline_config_from_settings(),
+            mapper, _timeline_config_from_settings(db),
         )
 
         if dry_run:

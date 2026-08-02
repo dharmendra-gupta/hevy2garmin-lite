@@ -197,7 +197,26 @@
   </div>
 
   <div class="glass-panel">
+    <h2>Timeline Tuning</h2>
+    <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 0.75rem;">
+      Hevy gives no per-set timestamps — these estimate one, then scale it to fit the watch activity's real duration. Only affects how sets are spread out within an exercise; never the overall timing.
+    </p>
+    <div class="field-row">
+      <label>Working set <input type="number" id="workingSetSeconds" min="0" step="1"> s</label>
+      <label>Warmup set <input type="number" id="warmupSetSeconds" min="0" step="1"> s</label>
+      <label>Rest between sets <input type="number" id="restBetweenSetsSeconds" min="0" step="1"> s</label>
+      <label>Rest between exercises <input type="number" id="restBetweenExercisesSeconds" min="0" step="1"> s</label>
+    </div>
+    <div class="field-row">
+      <button class="btn btn-outline" onclick="saveTimelineSettings()">Save</button>
+    </div>
+  </div>
+
+  <div class="glass-panel">
     <h2>Unmapped Exercises</h2>
+    <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 0.75rem;">
+      "Save" here only assigns a generic category — it'll render as that category's default label, not the specific exercise. For the exact name, correct it once in Garmin Connect's own "Choose an Exercise" UI after it syncs, then use "Map from Garmin" on that workout below.
+    </p>
     <table id="unmapped"><thead><tr><th>Exercise</th><th>Occurrences</th><th>Category</th><th></th></tr></thead><tbody></tbody></table>
   </div>
 
@@ -254,6 +273,12 @@ async function refresh() {
   document.getElementById('pollingToggle').checked = s.polling_enabled;
   document.getElementById('pollingInterval').value = s.sync_interval_minutes;
 
+  const t = await j('/v1/settings/timeline');
+  document.getElementById('workingSetSeconds').value = t.working_set_seconds;
+  document.getElementById('warmupSetSeconds').value = t.warmup_set_seconds;
+  document.getElementById('restBetweenSetsSeconds').value = t.rest_between_sets_seconds;
+  document.getElementById('restBetweenExercisesSeconds').value = t.rest_between_exercises_seconds;
+
   const categories = await j('/v1/mappings/categories');
   const unmapped = await j('/v1/mappings/unmapped');
   const utbody = document.querySelector('#unmapped tbody');
@@ -275,7 +300,7 @@ async function refresh() {
     const canLearn = row.sync_status === 'synced';
     const statusClass = row.sync_status === 'synced' ? 'ok' : (row.sync_status === 'failed' ? 'bad' : '');
     tr.innerHTML = `<td>${row.hevy_workout_id}</td><td class="${statusClass}">${row.sync_status}</td><td>${row.synced_at}</td>
-      <td>${canLearn ? `<button class="btn btn-outline" onclick="learnFromGarmin('${row.hevy_workout_id}', this)">Re-check Garmin</button>` : ''}</td>`;
+      <td>${canLearn ? `<button class="btn btn-outline" onclick="learnFromGarmin('${row.hevy_workout_id}', this)">Map from Garmin</button>` : ''}</td>`;
     htbody.appendChild(tr);
   }
 
@@ -351,6 +376,27 @@ async function togglePolling() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ enabled, interval_minutes }),
   });
+  refresh();
+}
+
+async function saveTimelineSettings() {
+  const body = {
+    working_set_seconds: parseInt(document.getElementById('workingSetSeconds').value, 10),
+    warmup_set_seconds: parseInt(document.getElementById('warmupSetSeconds').value, 10),
+    rest_between_sets_seconds: parseInt(document.getElementById('restBetweenSetsSeconds').value, 10),
+    rest_between_exercises_seconds: parseInt(document.getElementById('restBetweenExercisesSeconds').value, 10),
+  };
+  const r = await fetch('/v1/settings/timeline', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (r.ok) {
+    showToast('Timeline settings saved');
+  } else {
+    const err = await r.json();
+    showToast(err.detail || 'Failed to save timeline settings');
+  }
   refresh();
 }
 

@@ -144,3 +144,24 @@ def test_existing_category_only_overrides_still_resolve_with_no_name(mapper):
     identity = mapper.resolve("OLD_ID", "Some Old Override")
     assert identity.category == "TOTAL_BODY"
     assert identity.name is None
+
+
+# --- known_template_ids() scoping for "learn from Garmin" -------------------
+
+def test_bundled_catalog_ids_are_known(mapper):
+    assert "79D0BB3A" in mapper.known_template_ids()
+
+
+def test_category_only_override_is_not_known(mapper):
+    # A category-only override (e.g. a quick dashboard "assign a category"
+    # fix, or an accidental Save click) must stay eligible for "learn from
+    # Garmin" to upgrade into a real name — it's a guess, not a resolution.
+    mapper.save_override("CUSTOM_ID", "BENCH_PRESS")
+    assert "CUSTOM_ID" not in mapper.known_template_ids()
+
+
+def test_name_bearing_override_is_known(mapper):
+    # A validated (category, name) pair, sourced from Garmin's own confirmed
+    # state, genuinely doesn't need re-learning.
+    mapper.save_override("CUSTOM_ID", "BENCH_PRESS", name="BARBELL_BENCH_PRESS")
+    assert "CUSTOM_ID" in mapper.known_template_ids()

@@ -45,10 +45,10 @@ WEBHOOK_RETRY_DELAYS_MINUTES: str = "5,10,15"                # comma string; .we
 MATCH_TOLERANCE_MINUTES: int = 15
 SYNC_INTERVAL_MINUTES: int = 15               # fallback default only — live value is dashboard/sync_meta-controlled, see below
 POLLING_ENABLED_DEFAULT: bool = False
-WORKING_SET_SECONDS: int = 40
-WARMUP_SET_SECONDS: int = 25
-REST_BETWEEN_SETS_SECONDS: int = 75
-REST_BETWEEN_EXERCISES_SECONDS: int = 120
+WORKING_SET_SECONDS: int = 40                 # fallback default only — live value is dashboard/sync_meta-controlled, see below
+WARMUP_SET_SECONDS: int = 25                  # ditto
+REST_BETWEEN_SETS_SECONDS: int = 75           # ditto
+REST_BETWEEN_EXERCISES_SECONDS: int = 120     # ditto
 PORT: int = 8000
 API_BASIC_AUTH_USERNAME: str = "admin"
 API_BASIC_AUTH_PASSWORD: str = "change_me"
@@ -80,6 +80,7 @@ Docker-compose-only var (not read by the app itself): `GARMIN_TOKEN_HOST_DIR` �
 | POST | `/v1/auth/mfa` | Basic | Body `{"code": str}` |
 | POST | `/v1/sync-now` | Basic | Runs `run_sync_cycle()` regardless of polling toggle state |
 | GET/POST | `/v1/settings/polling` | Basic | Body `{"enabled": bool, "interval_minutes": int \| null}` on POST — `interval_minutes` omitted keeps the current value; `< 1` → 400. Both persisted in `sync_meta`, reflected live by rescheduling the APScheduler job (remove-then-re-add, so an interval change takes effect even while already enabled) |
+| GET/POST | `/v1/settings/timeline` | Basic | Body `{"working_set_seconds", "warmup_set_seconds", "rest_between_sets_seconds", "rest_between_exercises_seconds"}` (all required ints) on POST; any `< 0` → 400. Persisted in `sync_meta` (added 2026-08-02), read fresh by `sync.py:_timeline_config_from_settings(db)` on every sync — no restart needed |
 | POST | `/v1/webhooks/hevy` | `Authorization` header == `HEVY_WEBHOOK_AUTH_TOKEN` (not Basic — Hevy's servers call this, not a browser) | Body is `{"workoutId": "<uuid>"}` (confirmed live 2026-08-02 — see below); empty/missing `workoutId` → `{"status":"ignored"}` |
 | GET | `/v1/logs` | Basic | Optional `?source=webhook\|polling\|manual` query param filters by trigger source; omit for all. Entries logged before this field existed have no `source` key and are only returned unfiltered |
 | GET | `/v1/mappings/unmapped` | Basic | |
@@ -122,7 +123,7 @@ Resolution order: user override (`data/exercise_mappings.json`) → bundled cata
 
 **Overrides can now carry a name, not just a category** (added for the "learn from Garmin" feature — `src/learn.py` + `POST /v1/mappings/learn-from-garmin/{id}`): `save_override(template_id, category, note="", name=None)` validates any given `name` via `mapping._validate_category_name_pair()` (same fit_tool cross-check, reversed direction — confirms `name` is a genuine member of `category`'s enum) and raises `ValueError` on mismatch. This is safe specifically because the only caller that ever passes a `name` is `learn_mappings_from_garmin()`, which sources it from Garmin's own confirmed state (a manual "Choose an Exercise" UI correction), never a hand-guess. Old category-only override entries (no `"name"` key in `data/exercise_mappings.json`) still resolve fine — `name` is optional/nullable, loaded as `None` if absent.
 
-**`learn_mappings_from_garmin()` (`src/learn.py`)** matches a Garmin `GET exerciseSets` response back to Hevy exercises by **`startTime` string equality**, not `wktStepIndex`/`messageIndex` — confirmed live 2026-08-01 (activity `23810842954`) that both come back `null` on an entry a user manually corrected via Garmin's UI, even though `startTime` survives intact. It reconstructs the same synthesized timeline `push.py:build_exercise_sets_payload` used originally (`build_set_timeline(hevy_exercises, activity_duration_s)`) to compute each Hevy exercise's expected `startTime`, then joins on that. Requires `activity_start`/`activity_duration_s` sourced from `client.get_activity(activity_id)` (**not** `get_activities()`) — see the `parse_activity_summary_gmt` note below for why that needs a different timestamp parser. Only surfaces template_ids not already covered by `mapper.known_template_ids()` (bundled catalog ∪ existing overrides) — scoped to genuinely unmapped/custom exercises.
+**`learn_mappings_from_garmin()` (`src/learn.py`)** matches a Garmin `GET exerciseSets` response back to Hevy exercises by **`startTime` string equality**, not `wktStepIndex`/`messageIndex` — confirmed live 2026-08-01 (activity `23810842954`) that both come back `null` on an entry a user manually corrected via Garmin's UI, even though `startTime` survives intact. It reconstructs the same synthesized timeline `push.py:build_exercise_sets_payload` used originally (`build_set_timeline(hevy_exercises, activity_duration_s)`) to compute each Hevy exercise's expected `startTime`, then joins on that. Requires `activity_start`/`activity_duration_s` sourced from `client.get_activity(activity_id)` (**not** `get_activities()`) — see the `parse_activity_summary_gmt` note below for why that needs a different timestamp parser. Only surfaces template_ids not already covered by `mapper.known_template_ids()`. **`known_template_ids()` = bundled catalog ∪ overrides that already carry a validated `name`** (fixed 2026-08-02 — a category-only override, e.g. a hand-guessed dashboard "assign a category" click, used to count as "known" and get permanently skipped by this scoping, with no way to upgrade it short of hand-editing `exercise_mappings.json`). Now a category-only override stays eligible for learning: correct it in Garmin's UI, then re-run "Map from Garmin" on that workout and it overwrites the guess with the real name.
 
 ---
 
@@ -190,7 +191,9 @@ synced_workouts(hevy_workout_id PK, garmin_activity_id UNIQUE, sync_status, cont
 unmapped_exercises(template_id PK, exercise_name, first_seen_at, occurrences)
 sync_meta(key PK, value)
   -- keys used: last_poll_timestamp, polling_enabled ("true"/"false" strings),
-  --            polling_interval_minutes (stringified int, default SYNC_INTERVAL_MINUTES)
+  --            polling_interval_minutes (stringified int, default SYNC_INTERVAL_MINUTES),
+  --            working_set_seconds / warmup_set_seconds / rest_between_sets_seconds /
+  --            rest_between_exercises_seconds (stringified ints, defaults from Settings)
 ```
 `Database` class wraps all queries — no raw SQL elsewhere in the codebase.
 
@@ -244,17 +247,18 @@ Measured idle RSS of the running `app` container: **~42–44MB** (`docker stats`
 - `/v1/logs` entries carry a `source` field (`webhook` / `polling` / `manual`, added 2026-08-02) so the three `sync_one_workout()` callers are distinguishable — see that section above. `_scheduled_sync(source=...)` is shared by both the periodic timer (`"polling"`) and `POST /v1/sync-now` (`"manual"`); they're the same underlying `run_sync_cycle()` call, only the tag differs.
 - `POST /v1/auth/login` does **not** force-reset an already-cached client if status is `authenticated` — matches garmin-scale-sync's own no-op behavior, not a bug.
 - **A manual "Choose an Exercise" correction in Garmin's own UI nulls out `wktStepIndex`/`messageIndex`** on that set — confirmed live 2026-08-01. `learn.py` cannot join on those; it matches on `startTime` instead, which does survive.
+- **A category-only override used to permanently block "learn from Garmin" for that exercise** — `known_template_ids()` counted any override, name or not, as "already known," so an accidental dashboard "Save" click (or a deliberate quick category fix) could never be upgraded to a real name afterward, with no delete/reset endpoint to undo it either. Fixed live 2026-08-02: only name-bearing overrides count as known now. If this regresses, the symptom is "Map from Garmin" silently finding nothing for an exercise you know you corrected in Garmin's UI.
 - `client.get_activity(id)` and `client.get_activities()` return `startTimeGMT` in **two different string formats** — see the Matching rule section above. Using `parse_garmin_gmt` on a `get_activity()` response (or vice versa) raises `ValueError`.
 
 ---
 
-## Test file → coverage map (`tests/`, 66 tests total, run via `docker compose run --rm test`)
+## Test file → coverage map (`tests/`, 77 tests total, run via `docker compose run --rm test`)
 
 | File | Covers |
 |---|---|
 | `test_matcher.py` | Overlap/drift/type matching, UTC-vs-local regression, back-to-back sessions, both `startTimeGMT` format parsers |
-| `test_db_idempotency.py` | Sync record CRUD, `UNIQUE` constraint, idempotent reruns, polling toggle + interval persistence |
-| `test_mapping.py` | Category+name resolution (incl. known Bench Press/Deadlift regression values), override precedence (now category+name), unmapped recording, non-hex ID validation, `_validate_category_name_pair` |
+| `test_db_idempotency.py` | Sync record CRUD, `UNIQUE` constraint, idempotent reruns, polling toggle + interval persistence, timeline-tuning seconds persistence (all 4 keys, parametrized) |
+| `test_mapping.py` | Category+name resolution (incl. known Bench Press/Deadlift regression values), override precedence (now category+name), unmapped recording, non-hex ID validation, `_validate_category_name_pair`, `known_template_ids()` scoping (category-only overrides stay learnable) |
 | `test_learn.py` | `learn_mappings_from_garmin`: `startTime`-based matching, rejects invalid pairs, skips already-known template_ids, dedupes multi-set exercises |
 | `test_timeline.py` | Set ordering, rest placement, scale-clamp overflow guards |
 | `test_hevy_client.py` | `parse_webhook_payload` against the confirmed-live `{"workoutId": "<uuid>"}` shape; missing/empty `workoutId` ignored |
