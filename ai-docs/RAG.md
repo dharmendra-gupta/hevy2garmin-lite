@@ -25,6 +25,8 @@ Not narrative. `grep` this file for a keyword and read only the matching block i
 | `scripts/spike_learn_readback.py` | Phase 0 spike for the "learn from Garmin" feature — push/read subcommands, throwaway once feature is fully E2E-verified |
 | `scripts/trigger_garmin_reauth.py` | Standalone credential bootstrap, superseded by `app`'s own self-heal |
 | `pyproject.toml` | `[tool.ruff]` config — line-length 125, `B008` ignored (FastAPI `Depends()` in defaults is intentional) |
+| `Dockerfile` | Multi-stage: `base` (prod-only, `requirements.txt`) then `dev` (`FROM base`, adds `requirements-dev.txt`) — see "Docker image: size and memory" below |
+| `requirements.txt` / `requirements-dev.txt` | Prod deps / test+lint-only extras (`pytest`, `pytest-mock`, `pytest-xdist`, `responses`, `ruff`) — split 2026-08-02 so the published image doesn't carry dev tooling |
 | `.github/workflows/test.yml` | CI: `lint`/`test` jobs (both via `docker compose`) on push/PR to `main`, then a `notify` job that PR-comments on success |
 | `.github/workflows/publish.yml` | CI: builds/pushes `ghcr.io/<owner>/<repo>` multi-arch on a successful `main` "Run Tests" run or a GitHub release — ported from `garmin-scale-sync`'s own workflow |
 
@@ -209,6 +211,16 @@ Three template IDs contain non-hex characters (upstream data quirk, kept as-is):
 
 ---
 
+## Docker image: size and memory (measured 2026-08-02, target is a 1GB Oracle Free Tier VM)
+
+`Dockerfile` is multi-stage: `base` (`requirements.txt` only — `python:3.12-slim`, `fastapi`/`uvicorn`/`garminconnect`/`fit_tool`/etc.) and `dev` (`FROM base`, adds `requirements-dev.txt` — `pytest`, `pytest-mock`, `pytest-xdist`, `responses`, `ruff`). `docker-compose.yml` sets `target: base` for `app`/`spike`/`reauth` and `target: dev` for `test`/`lint`; `publish.yml`'s `docker/build-push-action` step also pins `target: base` so GHCR never ships dev tooling. Before this split (single-stage, one shared `requirements.txt`), the published image was 293MB; `base` alone is **258MB**.
+
+Measured idle RSS of the running `app` container: **~42–44MB** (`docker stats`), confirmed via a live `docker compose up -d app` + `docker stats --no-stream` run — comfortably inside the 1GB target even with `garmin-scale-sync` and OS/Docker overhead running alongside it. `docker-compose.yml` now sets `mem_limit`/`mem_reservation` on every service (`app`: `256m`/`128m`, `spike`/`reauth`/`lint`: `256m`, `test`: `512m`, since `pytest-xdist` forks one worker per core) as a safety rail — not because normal usage is close to those numbers, but so a leak in this or a sibling container can't OOM the whole box. Compose (non-swarm) honors top-level `mem_limit`/`mem_reservation` directly; confirmed via `docker inspect`'s `HostConfig.Memory`.
+
+`test` runs pytest in parallel via `pytest-xdist` (`-n auto`, one worker per core — same pattern `garmin-scale-sync`'s own CI uses), cutting the 65-test suite from ~17s to ~9s locally.
+
+---
+
 ## Known gotchas (one-liner each)
 
 - `Garmin.connectapi()` is **GET-only**, no `method=` kwarg — PUT needs `client.client.put("connectapi", path, json=..., api=True)`. (`push.py`)
@@ -219,6 +231,8 @@ Three template IDs contain non-hex characters (upstream data quirk, kept as-is):
 - Each compose service (`app`/`test`/`spike`/`reauth`/`lint`) has its **own image** — rebuilding one doesn't rebuild the others.
 - `docker compose run --rm lint` only bind-mounts `tests/` (`src/`/`scripts/` are `COPY`'d at build). Running `ruff check --fix` through it silently discards fixes to `src/`/`scripts/` when the container exits — use a one-off `docker run` with those dirs mounted (or the `hevy2garmin-lite-lint` image directly) instead.
 - `GARMIN_TOKEN_HOST_DIR` (compose/host) vs `GARMIN_TOKEN_SOURCE_DIR` (container-internal, fixed) — do not set the latter from `.env`.
+- **`GARMIN_TOKEN_HOST_DIR` only does anything inside this repo's own `docker-compose.yml`.** A hand-written compose file (e.g. deploying this app alongside `garmin-scale-sync` on one host) must mount the shared host path to `/app/garmin_tokens_source` explicitly — omitting it doesn't error, the app just self-heals into its own private, unshared token, and each service silently shows a different auth status with no obvious link. Confirmed live 2026-08-02: exactly this happened on the user's Oracle VM — a bundled compose file mounted `./gss-data:/app/data` for both services but had no second volume line for `hevy2garmin-lite`'s token path at all.
+- **`garmin-scale-sync` does not expose a separate token volume** — it stores its session at `{its DATA_DIR}/.garminconnect` (a subfolder of its own `/app/data` mount, set via its `GARMINTOKENS` env var in its `config.py`), not at the data-mount root. "Pointing both services at the same directory" means mounting that `.garminconnect` subfolder into this app's `/app/garmin_tokens_source`, e.g. `./gss-data/.garminconnect:/app/garmin_tokens_source` — not `./gss-data` itself.
 - **`probability`, not `name`, gates exercise-identity rendering on watch-recorded activities.** The original assumption ("Garmin ignores pushed names regardless of validity") was wrong — confirmed live 2026-08-01. Always send `CONFIDENT_PROBABILITY`.
 - Never hand-guess a `fit_tool` subcategory name string — resolve dynamically or send `None`. A wrong guess 400s the *entire* atomic push.
 - Hevy webhook fires **only** on `workout.created` — never edits/deletes. Polling (`run_sync_cycle`) is what catches those.

@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.12-slim AS base
 
 WORKDIR /app
 
@@ -22,3 +22,11 @@ HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8000/v1/health || exit 1
 
 CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# Adds pytest/ruff on top of `base` for the test/lint services only — the
+# published/production image (`app`, `spike`, `reauth`) targets `base`
+# directly and never carries these.
+FROM base AS dev
+
+COPY requirements-dev.txt .
+RUN pip install --no-cache-dir -r requirements-dev.txt

@@ -80,6 +80,36 @@ All configuration is via `.env` (see `.env.example` for the full annotated templ
 | `DRY_RUN` | `false` | Match and build payloads without pushing to Garmin |
 | `GARMIN_TOKEN_HOST_DIR` | `./.garminconnect` | Host path for the shared Garmin token volume |
 
+### Sharing tokens with garmin-scale-sync (or another host)
+
+This app always reads/writes its Garmin session token at the **fixed container path `/app/garmin_tokens_source`** — that path is not configurable, only what's mounted into it is. `GARMIN_TOKEN_HOST_DIR` is a `docker-compose.yml`-only variable (the app itself never reads it); it just controls what host folder gets bind-mounted to `/app/garmin_tokens_source` in *this repo's own* `docker-compose.yml`.
+
+If you're running this app under a different, hand-written compose file (e.g. bundling it alongside garmin-scale-sync and other services on one host), `GARMIN_TOKEN_HOST_DIR` does nothing — you have to add the volume line yourself:
+
+```yaml
+services:
+  hevy2garmin-lite:
+    image: ghcr.io/<owner>/hevy2garmin-lite:latest
+    volumes:
+      - <shared-host-path>:/app/garmin_tokens_source
+```
+
+**The gotcha**: garmin-scale-sync doesn't expose a separate token volume at all — it stores its token inside a `.garminconnect` subfolder of its own `/app/data` mount (i.e. `{garmin-scale-sync's data volume host path}/.garminconnect`). So pointing both services at "the same directory" means mounting *that subfolder* into this app's `/app/garmin_tokens_source`, not garmin-scale-sync's whole data folder:
+
+```yaml
+services:
+  garmin-scale-sync:
+    volumes:
+      - ./gss-data:/app/data          # token ends up at ./gss-data/.garminconnect
+
+  hevy2garmin-lite:
+    volumes:
+      - ./h2glite-data:/app/data      # keep this app's own data separate
+      - ./gss-data/.garminconnect:/app/garmin_tokens_source   # <- same token store
+```
+
+Mounting the wrong directory (or forgetting the second volume line) doesn't error — the app just silently self-heals into its own private, unshared token, and each service will show a different auth status with no obvious link between them.
+
 ## API Reference
 
 All endpoints except the webhook and health check use **HTTP Basic Auth** (`API_BASIC_AUTH_USERNAME` / `API_BASIC_AUTH_PASSWORD`).

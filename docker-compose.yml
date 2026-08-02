@@ -2,7 +2,9 @@ name: hevy2garmin-lite
 
 services:
   app:
-    build: .
+    build:
+      context: .
+      target: base
     env_file:
       - .env
     ports:
@@ -16,12 +18,20 @@ services:
       # successful re-login, not just read them.
       - ${GARMIN_TOKEN_HOST_DIR:-./.garminconnect}:/app/garmin_tokens_source
     restart: unless-stopped
+    # Safety rail for the 1GB Oracle Free Tier target (Core Constraint 2,
+    # ai-docs/implementation_plan.md): measured idle usage is ~42MB, so this
+    # ceiling exists to stop a leak/bug in this or a sibling container from
+    # taking down the whole box, not because normal usage is anywhere close.
+    mem_limit: 256m
+    mem_reservation: 128m
 
   # One-off spike (Phase G): validates the null-name + category push against
   # a real watch-recorded activity before the full sync loop is trusted.
   # Run with: docker compose run --rm spike
   spike:
-    build: .
+    build:
+      context: .
+      target: base
     profiles: ["tools"]
     env_file:
       - .env
@@ -29,6 +39,7 @@ services:
       - ./data:/app/data
       - ${GARMIN_TOKEN_HOST_DIR:-./.garminconnect}:/app/garmin_tokens_source:ro
     entrypoint: ["python", "-m", "scripts.spike_push_test"]
+    mem_limit: 256m
 
   # Optional manual bootstrap: the `app` service now self-heals the shared
   # token store on its own (garmin_client.py + the dashboard's MFA flow), so
@@ -36,7 +47,9 @@ services:
   # first-time bootstrap or CLI-only recovery without spinning up the web
   # server. Run with: docker compose run --rm reauth
   reauth:
-    build: .
+    build:
+      context: .
+      target: base
     profiles: ["tools"]
     env_file:
       - .env
@@ -47,21 +60,27 @@ services:
     entrypoint: ["python", "-m", "scripts.trigger_garmin_reauth"]
     stdin_open: true
     tty: true
+    mem_limit: 256m
 
   # Run with: docker compose run --rm test
   test:
-    build: .
+    build:
+      context: .
+      target: dev
     profiles: ["tools"]
     env_file:
       - .env
     volumes:
       - ./data:/app/data
       - ./tests:/app/tests
-    entrypoint: ["python", "-m", "pytest", "tests/", "-v"]
+    entrypoint: ["python", "-m", "pytest", "tests/", "-n", "auto", "-v"]
+    mem_limit: 512m
 
   # Run with: docker compose run --rm lint
   lint:
-    build: .
+    build:
+      context: .
+      target: dev
     profiles: ["tools"]
     env_file:
       - .env
@@ -69,3 +88,4 @@ services:
       - ./tests:/app/tests
       - ./pyproject.toml:/app/pyproject.toml
     entrypoint: ["ruff", "check", "src", "tests", "scripts"]
+    mem_limit: 256m

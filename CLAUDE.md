@@ -16,6 +16,7 @@ Hevy2Garmin Lite: enriches a Garmin watch activity **in place** with Hevy's exer
 - Never run anything on the host, except docker.
 - Linter: `ruff` (config in `pyproject.toml`), run via `docker compose run --rm lint`. It only bind-mounts `tests/` — after `ruff --fix` touches `src/`/`scripts/`, use `docker run` with those dirs mounted too, or the fix is lost when the container exits (see Commands).
 - CI (`.github/workflows/`): `test.yml` runs lint+test on every push/PR to `main`; `publish.yml` builds and pushes to GHCR on a successful `main` run or a GitHub release.
+- `Dockerfile` is multi-stage: `base` (prod deps only — `app`/`spike`/`reauth`) and `dev` (`base` + pytest/ruff/pytest-xdist — `test`/`lint`). `publish.yml` always targets `base`; adding a prod dependency goes in `requirements.txt`, a test/lint-only one in `requirements-dev.txt`.
 
 ## Commands
 
@@ -23,7 +24,7 @@ Hevy2Garmin Lite: enriches a Garmin watch activity **in place** with Hevy's exer
 docker compose build              # build all service images
 docker compose up -d app          # run the app (dashboard on :8000, from .env PORT)
 docker compose down                # stop it
-docker compose run --rm test       # full pytest suite
+docker compose run --rm test       # full pytest suite, parallel (pytest-xdist -n auto)
 docker compose run --rm lint       # ruff check (src/scripts baked in — see note above for --fix)
 docker compose run --rm spike      # Phase G live validation push — real account write, requires typed 'yes'
 docker compose run --rm reauth     # manual credential bootstrap (rarely needed — app self-heals)

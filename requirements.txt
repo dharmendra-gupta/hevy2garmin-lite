@@ -7,12 +7,3 @@ python-dotenv==1.0.1
 pydantic-settings==2.7.1
 APScheduler==3.11.0
 fit-tool>=0.9.15
-
-# test-only, but kept in the same image for simplicity — unused packages on
-# disk don't consume runtime RAM (Core Constraint 2 is about running memory).
-pytest==8.3.4
-pytest-mock==3.14.0
-responses==0.25.3
-
-# lint-only, same "unused packages on disk are free" reasoning as above
-ruff==0.8.4
