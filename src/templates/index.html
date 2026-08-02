@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hevy2Garmin Lite</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIiB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiI+CiAgPGcgdHJhbnNmb3JtPSJyb3RhdGUoLTQwIDUwIDUwKSI+CiAgICA8cmVjdCB4PSI1MCIgeT0iNDciIHdpZHRoPSI0MiIgaGVpZ2h0PSI2IiByeD0iMyIgZmlsbD0iI0Q2NDcwRiI+PC9yZWN0PgogICAgPHJlY3QgeD0iODYiIHk9IjM5IiB3aWR0aD0iMTAiIGhlaWdodD0iMjIiIHJ4PSIzIiBmaWxsPSIjRDY0NzBGIj48L3JlY3Q+CiAgPC9nPgogIDxjaXJjbGUgY3g9IjUwIiBjeT0iNTAiIHI9IjI3IiBmaWxsPSJub25lIiBzdHJva2U9IiMxNTE4MUIiIHN0cm9rZS13aWR0aD0iNiI+PC9jaXJjbGU+CiAgPGcgdHJhbnNmb3JtPSJyb3RhdGUoLTQwIDUwIDUwKSI+CiAgICA8cmVjdCB4PSI1MCIgeT0iNDcuNSIgd2lkdGg9IjI0IiBoZWlnaHQ9IjUiIHJ4PSIyLjUiIGZpbGw9IiMxNTE4MUIiPjwvcmVjdD4KICA8L2c+CiAgPHJlY3QgeD0iNDciIHk9IjIyIiB3aWR0aD0iNiIgaGVpZ2h0PSI3IiByeD0iMiIgZmlsbD0iIzE1MTgxQiI+PC9yZWN0PgogIDxyZWN0IHg9IjIxIiB5PSI0NyIgd2lkdGg9IjciIGhlaWdodD0iNiIgcng9IjIiIGZpbGw9IiMxNTE4MUIiPjwvcmVjdD4KICA8cmVjdCB4PSI0NyIgeT0iNzEiIHdpZHRoPSI2IiBoZWlnaHQ9IjciIHJ4PSIyIiBmaWxsPSIjMTUxODFCIj48L3JlY3Q+CiAgPHJlY3QgeD0iNzIiIHk9IjQ3IiB3aWR0aD0iNyIgaGVpZ2h0PSI2IiByeD0iMiIgZmlsbD0iIzE1MTgxQiI+PC9yZWN0PgogIDxjaXJjbGUgY3g9IjUwIiBjeT0iNTAiIHI9IjQiIGZpbGw9IiMxNTE4MUIiPjwvY2lyY2xlPgo8L3N2Zz4=">
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 780px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  .brand { display: flex; align-items: center; gap: 0.6rem; }
+  .brand svg { flex: 0 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0; }
+  section { margin-bottom: 2rem; padding: 1rem; border: 1px solid #ddd; border-radius: 8px; }
+  button { padding: 0.5rem 1rem; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid #eee; }
+  .ok { color: #1a7f37; } .bad { color: #c62828; }
+  pre { background: #f6f8fa; padding: 0.75rem; overflow-x: auto; font-size: 0.8rem; }
+</style>
+</head>
+<body>
+<div class="brand">
+  <svg viewBox="0 0 100 100" width="28" height="28" aria-hidden="true">
+    <g transform="rotate(-40 50 50)">
+      <rect x="50" y="47" width="42" height="6" rx="3" fill="#D6470F"></rect>
+      <rect x="86" y="39" width="10" height="22" rx="3" fill="#D6470F"></rect>
+    </g>
+    <circle cx="50" cy="50" r="27" fill="none" stroke="#15181B" stroke-width="6"></circle>
+    <g transform="rotate(-40 50 50)">
+      <rect x="50" y="47.5" width="24" height="5" rx="2.5" fill="#15181B"></rect>
+    </g>
+    <rect x="47" y="22" width="6" height="7" rx="2" fill="#15181B"></rect>
+    <rect x="21" y="47" width="7" height="6" rx="2" fill="#15181B"></rect>
+    <rect x="47" y="71" width="6" height="7" rx="2" fill="#15181B"></rect>
+    <rect x="72" y="47" width="7" height="6" rx="2" fill="#15181B"></rect>
+    <circle cx="50" cy="50" r="4" fill="#15181B"></circle>
+  </svg>
+  <h1>Hevy2Garmin Lite</h1>
+</div>
+
+<section>
+  <h2>Status</h2>
+  <div id="status">loading…</div>
+  <button onclick="syncNow()">Sync Now (manual reconciliation)</button>
+  <button onclick="triggerLogin()">Login to Garmin</button>
+  <span id="loginMsg"></span>
+  <div style="margin-top: 0.75rem;">
+    <label><input type="checkbox" id="pollingToggle" onchange="togglePolling()"> Periodic polling (safety net for edits/deletes)</label>
+  </div>
+  <div id="mfaBox" style="display:none; margin-top: 0.75rem;">
+    <strong>MFA code requested:</strong>
+    <input type="text" id="mfaCode" placeholder="6-digit code">
+    <button onclick="submitMfa()">Submit</button>
+  </div>
+</section>
+
+<section>
+  <h2>Unmapped Exercises</h2>
+  <table id="unmapped"><thead><tr><th>Exercise</th><th>Occurrences</th><th>Category</th><th></th></tr></thead><tbody></tbody></table>
+</section>
+
+<section>
+  <h2>Recent Sync History</h2>
+  <table id="history"><thead><tr><th>Workout</th><th>Status</th><th>Synced At</th><th></th></tr></thead><tbody></tbody></table>
+</section>
+
+<section>
+  <h2>Logs</h2>
+  <pre id="logs"></pre>
+</section>
+
+<script>
+async function j(url, opts) {
+  const r = await fetch(url, opts);
+  return r.json();
+}
+
+async function refresh() {
+  const s = await j('/v1/status');
+  const authState = s.garmin_auth.status;
+  document.getElementById('status').innerHTML = `
+    <div>Garmin auth: <span class="${authState === 'authenticated' ? 'ok' : 'bad'}">${authState}</span> — ${s.garmin_auth.message}</div>
+    <div>Hevy API key configured: ${s.hevy_api_key_configured}</div>
+    <div>Hevy webhook registered: ${s.webhook_registered}</div>
+    <div>Dry run: ${s.dry_run}</div>
+    <div>Last run: ${JSON.stringify(s.last_run)}</div>
+  `;
+  document.getElementById('mfaBox').style.display = (authState === 'mfa_required') ? 'block' : 'none';
+  document.getElementById('pollingToggle').checked = s.polling_enabled;
+
+  const categories = await j('/v1/mappings/categories');
+  const unmapped = await j('/v1/mappings/unmapped');
+  const tbody = document.querySelector('#unmapped tbody');
+  tbody.innerHTML = '';
+  for (const row of unmapped) {
+    const tr = document.createElement('tr');
+    const select = categories.map(c => `<option value="${c}">${c}</option>`).join('');
+    tr.innerHTML = `<td>${row.exercise_name}</td><td>${row.occurrences}</td>
+      <td><select id="cat-${row.template_id}">${select}</select></td>
+      <td><button onclick="saveMapping('${row.template_id}')">Save</button></td>`;
+    tbody.appendChild(tr);
+  }
+
+  const history = await j('/v1/sync-history');
+  const htbody = document.querySelector('#history tbody');
+  htbody.innerHTML = '';
+  for (const row of history) {
+    const tr = document.createElement('tr');
+    const canLearn = row.sync_status === 'synced';
+    tr.innerHTML = `<td>${row.hevy_workout_id}</td><td>${row.sync_status}</td><td>${row.synced_at}</td>
+      <td>${canLearn ? `<button onclick="learnFromGarmin('${row.hevy_workout_id}', this)">Re-check Garmin</button>` : ''}</td>`;
+    htbody.appendChild(tr);
+  }
+
+  const logs = await j('/v1/logs');
+  document.getElementById('logs').textContent = JSON.stringify(logs, null, 2);
+}
+
+async function syncNow() {
+  await j('/v1/sync-now', { method: 'POST' });
+  refresh();
+}
+
+async function triggerLogin() {
+  const r = await j('/v1/auth/login', { method: 'POST' });
+  document.getElementById('loginMsg').textContent = r.message || r.status;
+  setTimeout(refresh, 1000);
+}
+
+async function submitMfa() {
+  const code = document.getElementById('mfaCode').value;
+  await j('/v1/auth/mfa', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  refresh();
+}
+
+async function togglePolling() {
+  const enabled = document.getElementById('pollingToggle').checked;
+  await j('/v1/settings/polling', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  refresh();
+}
+
+async function learnFromGarmin(workoutId, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Checking…';
+  const r = await j(`/v1/mappings/learn-from-garmin/${workoutId}`, { method: 'POST' });
+  const count = (r.learned || []).length;
+  btn.textContent = count > 0 ? `Learned ${count}` : 'No changes found';
+  refresh();
+}
+
+async function saveMapping(templateId) {
+  const category = document.getElementById('cat-' + templateId).value;
+  await j('/v1/mappings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ template_id: templateId, category }),
+  });
+  refresh();
+}
+
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>

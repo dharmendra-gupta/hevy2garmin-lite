@@ -1,0 +1,71 @@
+name: hevy2garmin-lite
+
+services:
+  app:
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - ./data:/app/data
+      # Local dev default points at ./.garminconnect. On the Oracle VM,
+      # set GARMIN_TOKEN_HOST_DIR to garmin-scale-sync's real data dir.
+      # Read-WRITE (no :ro): the app now self-heals this shared token store
+      # (see plan §2 revision) — it needs to write fresh tokens back on a
+      # successful re-login, not just read them.
+      - ${GARMIN_TOKEN_HOST_DIR:-./.garminconnect}:/app/garmin_tokens_source
+    restart: unless-stopped
+
+  # One-off spike (Phase G): validates the null-name + category push against
+  # a real watch-recorded activity before the full sync loop is trusted.
+  # Run with: docker compose run --rm spike
+  spike:
+    build: .
+    profiles: ["tools"]
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ${GARMIN_TOKEN_HOST_DIR:-./.garminconnect}:/app/garmin_tokens_source:ro
+    entrypoint: ["python", "-m", "scripts.spike_push_test"]
+
+  # Optional manual bootstrap: the `app` service now self-heals the shared
+  # token store on its own (garmin_client.py + the dashboard's MFA flow), so
+  # this is no longer required for normal operation. Still useful for a
+  # first-time bootstrap or CLI-only recovery without spinning up the web
+  # server. Run with: docker compose run --rm reauth
+  reauth:
+    build: .
+    profiles: ["tools"]
+    env_file:
+      - .env
+    volumes:
+      # Read-WRITE (no :ro) — this is the one deliberate exception; the
+      # whole point is to persist fresh tokens back to the shared store.
+      - ${GARMIN_TOKEN_HOST_DIR:-./.garminconnect}:/app/garmin_tokens_source
+    entrypoint: ["python", "-m", "scripts.trigger_garmin_reauth"]
+    stdin_open: true
+    tty: true
+
+  # Run with: docker compose run --rm test
+  test:
+    build: .
+    profiles: ["tools"]
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./tests:/app/tests
+    entrypoint: ["python", "-m", "pytest", "tests/", "-v"]
+
+  # Run with: docker compose run --rm lint
+  lint:
+    build: .
+    profiles: ["tools"]
+    env_file:
+      - .env
+    volumes:
+      - ./tests:/app/tests
+      - ./pyproject.toml:/app/pyproject.toml
+    entrypoint: ["ruff", "check", "src", "tests", "scripts"]

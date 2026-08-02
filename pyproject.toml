@@ -1,0 +1,9 @@
+[tool.ruff]
+line-length = 125
+target-version = "py312"
+extend-exclude = ["data"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+# B008: FastAPI's Depends(...) in a default argument is the documented pattern, not a bug.
+ignore = ["B008"]
