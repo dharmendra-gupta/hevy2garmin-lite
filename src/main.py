@@ -38,7 +38,6 @@ from src.garmin_client import (
 )
 from src.learn import learn_mappings_from_garmin
 from src.mapping import CATEGORY_NAMES, ExerciseMapper, validate_catalog
-from src.matcher import parse_activity_summary_gmt
 from src.push import get_existing_exercise_sets
 from src.sync import run_sync_cycle, sync_workout_by_id
 
@@ -420,9 +419,6 @@ async def learn_from_garmin(hevy_workout_id: str):
 
     try:
         client = get_garmin_client()
-        summary = client.get_activity(activity_id).get("summaryDTO", {})
-        activity_start = parse_activity_summary_gmt(summary["startTimeGMT"])
-        activity_duration_s = summary["duration"]
         garmin_exercise_sets = get_existing_exercise_sets(client, activity_id) or {}
     except GarminConnectAuthenticationError as e:
         reset_garmin_client()
@@ -436,7 +432,7 @@ async def learn_from_garmin(hevy_workout_id: str):
     )
 
     learned = learn_mappings_from_garmin(
-        hevy_exercises, garmin_exercise_sets, activity_start, activity_duration_s,
+        hevy_exercises, garmin_exercise_sets,
         already_known_template_ids=mapper.known_template_ids(),
     )
     for lm in learned:
@@ -451,8 +447,8 @@ async def learn_from_garmin(hevy_workout_id: str):
     else:
         logger.info(
             "Map from Garmin for workout %s: nothing learned (either every exercise's template_id is already "
-            "known, no set's startTime matched the synthesized timeline, or the returned name failed "
-            "category/name validation)",
+            "known, the total ACTIVE set count didn't match Hevy's, or the returned name failed "
+            "category/name validation — see any WARNING lines just above this one for which)",
             hevy_workout_id,
         )
 

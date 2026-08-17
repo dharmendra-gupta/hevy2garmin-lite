@@ -24,20 +24,22 @@ from src.template_map_source import TEMPLATE_TO_FIT
 
 logger = logging.getLogger("hevy2garmin_lite.mapping")
 
-# FIT SDK category id -> Garmin API category string. Matches fit_tool's own
-# ExerciseCategory enum exactly (verified against bikemap/fit_tool source).
-CATEGORY_NAMES: dict[int, str] = {
-    0: "BENCH_PRESS", 1: "CALF_RAISE", 2: "CARDIO", 3: "CARRY",
-    4: "CHOP", 5: "CORE", 6: "CRUNCH", 7: "CURL", 8: "DEADLIFT",
-    9: "FLYE", 10: "HIP_RAISE", 11: "HIP_STABILITY", 12: "HIP_SWING",
-    13: "HYPEREXTENSION", 14: "LATERAL_RAISE", 15: "LEG_CURL",
-    16: "LEG_RAISE", 17: "LUNGE", 18: "OLYMPIC_LIFT", 19: "PLANK",
-    20: "PLYO", 21: "PULL_UP", 22: "PUSH_UP", 23: "ROW",
-    24: "SHOULDER_PRESS", 25: "SHOULDER_STABILITY", 26: "SHRUG",
-    27: "SIT_UP", 28: "SQUAT", 29: "TOTAL_BODY",
-    30: "TRICEPS_EXTENSION", 31: "WARM_UP", 32: "RUN",
-    65534: "UNKNOWN",
-}
+def _load_category_names() -> dict[int, str]:
+    """FIT SDK category id -> Garmin API category string, built directly
+    from fit_tool's real ExerciseCategory enum rather than hand-typing a
+    subset. A previous hand-typed table stopped at id 32, silently missing
+    an entire second tier of real categories (33-53: BIKE, MOVE,
+    BATTLE_ROPE, ELLIPTICAL, INDOOR_BIKE, INDOOR_ROW, STAIR_STEPPER,
+    BANDED_EXERCISES, RUN_INDOOR, etc.) — confirmed live 2026-08-17 when a
+    genuine Garmin-corrected exercise came back as category=BANDED_EXERCISES
+    (id 37) and failed validation purely because the table didn't contain
+    it, not because Garmin lacks a real name for it."""
+    from fit_tool.profile.profile_type import ExerciseCategory
+
+    return {member.value: member.name for member in ExerciseCategory}
+
+
+CATEGORY_NAMES: dict[int, str] = _load_category_names()
 
 FALLBACK_CATEGORY = "TOTAL_BODY"
 

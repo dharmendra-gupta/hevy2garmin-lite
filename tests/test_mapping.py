@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 import pytest
 
@@ -58,13 +59,28 @@ def test_known_deadlift_resolves_category_and_name(mapper):
     assert identity.name == "BARBELL_DEADLIFT"
 
 
+def test_category_names_covers_the_full_real_fit_tool_enum():
+    # Regression: CATEGORY_NAMES used to be a hand-typed subset that stopped
+    # at category id 32, silently missing an entire second tier (33-53:
+    # BIKE, MOVE, BATTLE_ROPE, ELLIPTICAL, INDOOR_BIKE, INDOOR_ROW,
+    # STAIR_STEPPER, BANDED_EXERCISES, RUN_INDOOR, etc.) that fit_tool's own
+    # ExerciseCategory enum has always had real string names for. Confirmed
+    # live 2026-08-17: a genuine Garmin-corrected exercise came back with
+    # category="BANDED_EXERCISES" (id 37) and failed validation purely
+    # because our table didn't contain it — not because Garmin lacks a name.
+    from fit_tool.profile.profile_type import ExerciseCategory
+
+    real = {member.value: member.name for member in ExerciseCategory}
+    assert real == CATEGORY_NAMES
+
+
 def test_unresolvable_category_falls_back_with_no_name(mapper):
-    # Template IDs whose category has no confirmed fit_tool name (33/36/38/
-    # 41/42/47/52) must not attempt a name resolution at all.
-    unresolved_template_id = next(
-        tid for tid, (cat_id, _sub) in TEMPLATE_TO_FIT.items() if cat_id not in CATEGORY_NAMES
-    )
-    identity = mapper.resolve(unresolved_template_id, "irrelevant")
+    # A category id that genuinely doesn't exist even in fit_tool's own
+    # enum (not merely missing from a hand-typed subset) must still fall
+    # back safely rather than crash or attempt a name resolution.
+    fake_template_id = "FAKE_CATEGORY_ID_TEST"
+    with patch.dict(TEMPLATE_TO_FIT, {fake_template_id: (99999, 0)}):
+        identity = mapper.resolve(fake_template_id, "irrelevant")
     assert identity.category == FALLBACK_CATEGORY
     assert identity.name is None
 
@@ -120,6 +136,13 @@ def test_validate_category_name_pair_rejects_a_bogus_name():
     assert _validate_category_name_pair("BENCH_PRESS", "NOT_A_REAL_SUBCATEGORY") is False
 
 
+def test_validate_category_name_pair_accepts_a_previously_missing_category():
+    # Live regression 2026-08-17: BANDED_EXERCISES (id 37) is real and valid
+    # in fit_tool but was entirely absent from the old hand-typed table.
+    from src.mapping import _validate_category_name_pair
+    assert _validate_category_name_pair("BANDED_EXERCISES", "LEG_EXTENSION") is True
+
+
 def test_validate_category_name_pair_rejects_unknown_category():
     from src.mapping import _validate_category_name_pair
     assert _validate_category_name_pair("NOT_A_REAL_CATEGORY", "BARBELL_BENCH_PRESS") is False
@@ -168,16 +191,18 @@ def test_name_bearing_override_is_known(mapper):
 
 
 def test_bundled_catalog_id_that_falls_back_to_total_body_is_not_known(mapper):
-    # A catalog entry whose category has no confirmed fit_tool name (e.g. one
-    # of 33/36/38/39/41/42/47/52) resolves to generic TOTAL_BODY/name=None —
-    # that's a guess, not a resolution, and must stay eligible for "learn
-    # from Garmin" just like a hand-guessed category-only override. Before
-    # the fix, mere presence in TEMPLATE_TO_FIT counted as "known" regardless
-    # of what it actually resolved to, permanently blocking correction.
-    unresolved_template_id = next(
-        tid for tid, (cat_id, _sub) in TEMPLATE_TO_FIT.items() if cat_id not in CATEGORY_NAMES
-    )
-    assert unresolved_template_id not in mapper.known_template_ids()
+    # A catalog entry whose category id doesn't exist even in fit_tool's own
+    # enum resolves to generic TOTAL_BODY/name=None — that's a guess, not a
+    # resolution, and must stay eligible for "learn from Garmin" just like a
+    # hand-guessed category-only override. Before the fix, mere presence in
+    # TEMPLATE_TO_FIT counted as "known" regardless of what it actually
+    # resolved to, permanently blocking correction. (Since CATEGORY_NAMES
+    # now covers fit_tool's complete enum — see test_category_names_covers_
+    # the_full_real_fit_tool_enum — no *real* ported catalog entry hits this
+    # path anymore, so a fake one is patched in to exercise it.)
+    fake_template_id = "FAKE_UNRESOLVED_CATEGORY_TEST"
+    with patch.dict(TEMPLATE_TO_FIT, {fake_template_id: (99999, 0)}):
+        assert fake_template_id not in mapper.known_template_ids()
 
 
 def test_known_template_ids_matches_actual_resolution_outcome(mapper):
