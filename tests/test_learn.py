@@ -14,6 +14,8 @@ startTime (which does survive intact), not by index.
 from datetime import UTC, datetime, timedelta
 
 from src.learn import LearnedMapping, learn_mappings_from_garmin
+from src.mapping import CATEGORY_NAMES
+from src.template_map_source import TEMPLATE_TO_FIT
 from src.timeline import build_set_timeline
 
 ACTIVITY_START = datetime(2026, 8, 1, 9, 3, 6, tzinfo=UTC)
@@ -109,6 +111,38 @@ def test_skips_template_ids_already_known_via_catalog_or_override():
     )
 
     assert learned == []
+
+
+def test_learns_a_bundled_catalog_id_that_falls_back_to_total_body():
+    # Regression: a template_id merely being present in TEMPLATE_TO_FIT used
+    # to hard-block learning regardless of `already_known_template_ids` —
+    # a second, redundant gate independent of mapper.known_template_ids()
+    # (fixed 2026-08-17 in mapping.py, but this one in learn.py itself was
+    # missed). This is the real-world case: a catalog entry whose category
+    # id has no confirmed fit_tool name resolves to generic TOTAL_BODY, and
+    # a caller passing the *correctly computed* known_template_ids() (which
+    # excludes such fallback entries) must still be able to learn it here.
+    fallback_template_id = next(
+        tid for tid, (cat_id, _sub) in TEMPLATE_TO_FIT.items() if cat_id not in CATEGORY_NAMES
+    )
+    hevy_exercises = [_hevy_exercise(fallback_template_id, "Terminal Knee Extension Stretch")]
+    start_time = _active_set_start_time(hevy_exercises)
+    garmin_response = {
+        "exerciseSets": [{
+            "exercises": [{"category": "LEG_RAISE", "name": "HANGING_LEG_RAISE", "probability": 100.0}],
+            "startTime": start_time,
+            "setType": "ACTIVE",
+        }],
+    }
+
+    learned = learn_mappings_from_garmin(
+        hevy_exercises, garmin_response, ACTIVITY_START, ACTIVITY_DURATION_S,
+        already_known_template_ids=set(),  # correctly excludes the fallback id
+    )
+
+    assert learned == [
+        LearnedMapping(template_id=fallback_template_id, category="LEG_RAISE", name="HANGING_LEG_RAISE")
+    ]
 
 
 def test_rejects_an_invalid_category_name_pair():
