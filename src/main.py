@@ -90,6 +90,7 @@ def _scheduled_sync(source: str = "polling") -> None:
     result = run_sync_cycle(db, mapper, dry_run=settings.DRY_RUN)
     summary = {
         "synced": result.synced,
+        "synced_partial": result.synced_partial,
         "no_match": result.no_match,
         "skipped_idempotent": result.skipped_idempotent,
         "failed": result.failed,

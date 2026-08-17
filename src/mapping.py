@@ -148,14 +148,19 @@ class ExerciseMapper:
 
     def known_template_ids(self) -> set[str]:
         """Template ids that don't need "learn from Garmin" — bundled catalog
-        plus user overrides that already carry a validated name. A
-        category-only override (a quick dashboard "assign a category" fix,
-        or an accidental Save click) is deliberately NOT counted as known
-        here: it's a guess, not a resolution, and should stay eligible for
-        "learn from Garmin" to upgrade into a real name rather than being
-        silently skipped forever."""
+        entries that actually resolve to a specific (category, name), plus
+        user overrides that already carry a validated name. A category-only
+        override (a quick dashboard "assign a category" fix, or an
+        accidental Save click) is deliberately NOT counted as known here:
+        it's a guess, not a resolution, and should stay eligible for "learn
+        from Garmin" to upgrade into a real name rather than being silently
+        skipped forever. The same applies to a *bundled* catalog entry that
+        falls back to generic TOTAL_BODY/name=None (unresolved category id,
+        or unresolved subcategory) — mere presence in TEMPLATE_TO_FIT is not
+        a resolution either."""
+        catalog_with_name = {tid for tid in TEMPLATE_TO_FIT if self.resolve(tid, "").name is not None}
         overrides_with_name = {tid for tid, (_category, name) in self._overrides.items() if name is not None}
-        return set(TEMPLATE_TO_FIT) | overrides_with_name
+        return catalog_with_name | overrides_with_name
 
     def resolve(self, template_id: str | None, exercise_title: str) -> ExerciseIdentity:
         # User override wins. Historically category-only (a safe,

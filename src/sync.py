@@ -25,6 +25,7 @@ from src.push import (
     SetPushCircuitBreaker,
     build_exercise_sets_payload,
     get_existing_exercise_sets,
+    push_activity_name,
     push_exercise_sets,
 )
 from src.timeline import TimelineConfig
@@ -53,6 +54,7 @@ def _timeline_config_from_settings(db: Database) -> TimelineConfig:
 class SyncRunResult:
     def __init__(self):
         self.synced = 0
+        self.synced_partial = 0  # pushed, but Garmin rejected >=1 exercise's name (see push.py)
         self.no_match = 0
         self.skipped_idempotent = 0
         self.failed = 0
@@ -73,11 +75,14 @@ def sync_one_workout(
 ) -> str:
     """Attempts to sync one already-fetched Hevy workout against
     already-fetched Garmin activities. Returns the resulting status:
-    "synced" | "no_watch_match" | "skipped_idempotent" | "failed"."""
+    "synced" | "synced_partial" | "no_watch_match" | "skipped_idempotent" | "failed".
+    "synced_partial" means the push succeeded but Garmin rejected at least
+    one exercise's subcategory name, so push.py's atomic-retry fallback
+    stripped every name in this workout (see push.py:push_exercise_sets)."""
     content_hash = _content_hash(workout)
 
     existing = db.get_sync_record(workout_id)
-    if existing and existing["content_hash"] == content_hash and existing["sync_status"] == "synced":
+    if existing and existing["content_hash"] == content_hash and existing["sync_status"] in ("synced", "synced_partial"):
         return "skipped_idempotent"
 
     if breaker.tripped():
@@ -101,15 +106,30 @@ def sync_one_workout(
             mapper, _timeline_config_from_settings(db),
         )
 
+        title = workout.get("title")
         if dry_run:
             logger.info("[dry-run] would push %d sets to activity %s", len(payload["exerciseSets"]), activity_id)
+            if title:
+                logger.info("[dry-run] would rename activity %s to %r", activity_id, title)
+            names_stripped = False
         else:
-            push_exercise_sets(client, activity_id, payload)
+            names_stripped = push_exercise_sets(client, activity_id, payload)
+            if title:
+                try:
+                    push_activity_name(client, activity_id, title)
+                except GarminConnectAuthenticationError:
+                    raise
+                except Exception as e:  # noqa: BLE001
+                    # Best-effort: the exercise sets already pushed successfully,
+                    # which matters more than the activity title — don't fail
+                    # the whole sync over a cosmetic rename.
+                    logger.warning("Could not rename activity %s to Hevy title %r: %s", activity_id, title, e)
 
-        db.record_sync(workout_id, activity_id, "synced", content_hash)
+        sync_status = "synced_partial" if names_stripped else "synced"
+        db.record_sync(workout_id, activity_id, sync_status, content_hash)
         already_claimed.add(activity_id)
         breaker.record_success()
-        return "synced"
+        return sync_status
     except GarminConnectAuthenticationError as e:
         # The cached client's session died mid-cycle (e.g. revoked after
         # login succeeded) — clear it so the *next* cycle re-logs in fresh
@@ -219,6 +239,8 @@ def run_sync_cycle(db: Database, mapper: ExerciseMapper, dry_run: bool = False) 
         )
         if status == "synced":
             result.synced += 1
+        elif status == "synced_partial":
+            result.synced_partial += 1
         elif status == "no_watch_match":
             result.no_match += 1
         elif status == "skipped_idempotent":

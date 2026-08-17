@@ -80,6 +80,26 @@ def test_explicit_duration_seconds_used_for_cardio_sets():
     assert abs(active[0].duration_s - 300) < 1e-6
 
 
+def test_explicit_duration_seconds_not_scaled_when_activity_duration_differs():
+    # Regression: an explicit Hevy duration_seconds (e.g. a 30s stretch) is
+    # ground truth and must never be stretched/compressed by the global scale
+    # factor computed for the *estimated* sets — only the estimated portion
+    # should flex to fit the real activity duration.
+    exercises = [
+        {
+            "exercise_template_id": "STRETCH1",
+            "title": "Knee Extension Stretch",
+            "sets": [{"type": "normal", "duration_seconds": 30, "reps": None, "weight_kg": None}],
+        },
+        make_exercise(1),  # one estimated working set (40s default)
+    ]
+    # ideal_total = 30 (explicit) + 120 (rest between exercises) + 40 (estimated) = 190
+    # activity_duration_s = 100 forces the estimated/rest portion to scale down hard.
+    entries = build_set_timeline(exercises, activity_duration_s=100, config=DEFAULT_CONFIG)
+    active = [e for e in entries if e.set_type == "ACTIVE"]
+    assert abs(active[0].duration_s - 30) < 1e-6
+
+
 def test_empty_exercises_returns_empty_timeline():
     assert build_set_timeline([], activity_duration_s=600, config=DEFAULT_CONFIG) == []
 

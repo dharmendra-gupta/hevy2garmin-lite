@@ -108,7 +108,7 @@
   tr:last-child td { border-bottom: none; }
   .empty-row td { color: var(--text-secondary); text-align: center; padding: 1.5rem; }
 
-  .ok { color: var(--success); } .bad { color: var(--danger); }
+  .ok { color: var(--success); } .bad { color: var(--danger); } .warn { color: var(--warning); }
 
   .logs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem; }
   .logs-container { background: rgba(0, 0, 0, 0.25); border-radius: 14px; max-height: 340px; overflow-y: auto; border: 1px solid var(--glass-border); }
@@ -120,8 +120,9 @@
   .source-polling { background: rgba(167, 139, 250, 0.18); color: #a78bfa; }
   .source-manual { background: rgba(245, 158, 11, 0.18); color: var(--warning); }
   .log-status { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 8px; font-size: 0.68rem; font-weight: 600; text-transform: uppercase; }
-  .log-status.success { background: rgba(16, 185, 129, 0.18); color: var(--success); }
+  .log-status.success, .log-status.synced { background: rgba(16, 185, 129, 0.18); color: var(--success); }
   .log-status.failed, .log-status.no_watch_match { background: rgba(239, 68, 68, 0.18); color: var(--danger); }
+  .log-status.synced_partial { background: rgba(245, 158, 11, 0.18); color: var(--warning); }
   .log-detail { font-size: 0.82rem; color: var(--text-secondary); margin-top: 0.4rem; }
 
   .toast {
@@ -297,8 +298,13 @@ async function refresh() {
   htbody.innerHTML = history.length ? '' : '<tr class="empty-row"><td colspan="4">No workouts synced yet.</td></tr>';
   for (const row of history) {
     const tr = document.createElement('tr');
-    const canLearn = row.sync_status === 'synced';
-    const statusClass = row.sync_status === 'synced' ? 'ok' : (row.sync_status === 'failed' ? 'bad' : '');
+    // synced_partial means the push went through but Garmin rejected >=1
+    // exercise's subcategory name (see push.py's atomic strip-all-names
+    // fallback) — "Map from Garmin" is exactly the tool to fix that.
+    const canLearn = row.sync_status === 'synced' || row.sync_status === 'synced_partial';
+    const statusClass = row.sync_status === 'synced' ? 'ok'
+      : row.sync_status === 'synced_partial' ? 'warn'
+      : row.sync_status === 'failed' ? 'bad' : '';
     tr.innerHTML = `<td>${row.hevy_workout_id}</td><td class="${statusClass}">${row.sync_status}</td><td>${row.synced_at}</td>
       <td>${canLearn ? `<button class="btn btn-outline" onclick="learnFromGarmin('${row.hevy_workout_id}', this)">Map from Garmin</button>` : ''}</td>`;
     htbody.appendChild(tr);
@@ -315,7 +321,7 @@ function describeLogDetail(entry) {
     return text;
   }
   const parts = [];
-  for (const key of ['synced', 'no_match', 'skipped_idempotent', 'failed', 'source_deleted']) {
+  for (const key of ['synced', 'synced_partial', 'no_match', 'skipped_idempotent', 'failed', 'source_deleted']) {
     if (d[key]) parts.push(`${key}: ${d[key]}`);
   }
   let text = parts.length ? parts.join(', ') : 'nothing to sync';
