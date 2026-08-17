@@ -33,10 +33,15 @@ class SetEntry:
     set_type: str  # "ACTIVE" | "REST"
 
 
-def _estimate_set_duration(set_data: dict, is_warmup: bool, config: TimelineConfig) -> float:
+def _explicit_set_duration(set_data: dict) -> float | None:
     explicit = set_data.get("duration_seconds")
-    if explicit and explicit > 0:
-        return float(explicit)
+    return float(explicit) if explicit and explicit > 0 else None
+
+
+def _estimate_set_duration(set_data: dict, is_warmup: bool, config: TimelineConfig) -> float:
+    explicit = _explicit_set_duration(set_data)
+    if explicit is not None:
+        return explicit
     return config.warmup_set_seconds if is_warmup else config.working_set_seconds
 
 
@@ -57,6 +62,7 @@ def build_set_timeline(
         for s_idx, s in enumerate(sets):
             is_warmup = s.get("type", "normal") == "warmup"
             set_dur = _estimate_set_duration(s, is_warmup, config)
+            is_explicit = _explicit_set_duration(s) is not None
 
             is_last_set_of_exercise = s_idx == len(sets) - 1
             is_last_exercise = ex_idx == num_exercises - 1
@@ -72,19 +78,28 @@ def build_set_timeline(
                 "set_data": s,
                 "set_dur": set_dur,
                 "rest_dur": rest_dur,
+                "explicit": is_explicit,
             })
 
     if not planned:
         return []
 
-    ideal_total = sum(p["set_dur"] + p["rest_dur"] for p in planned)
-    scale = activity_duration_s / ideal_total if ideal_total > 0 else 1.0
+    # Explicit Hevy durations (e.g. a timed stretch/plank) are ground truth
+    # and must never be scaled — only the *estimated* sets and rest gaps flex
+    # to absorb the difference between the ideal plan and the real activity
+    # duration. Scale is computed only over that flexible remainder.
+    explicit_total = sum(p["set_dur"] for p in planned if p["explicit"])
+    flexible_ideal_total = sum(p["rest_dur"] for p in planned) + sum(
+        p["set_dur"] for p in planned if not p["explicit"]
+    )
+    flexible_budget = max(0.0, activity_duration_s - explicit_total)
+    scale = flexible_budget / flexible_ideal_total if flexible_ideal_total > 0 else 1.0
     scale = max(MIN_SCALE, min(MAX_SCALE, scale))
 
     entries: list[SetEntry] = []
     cursor = 0.0
     for p in planned:
-        scaled_set = p["set_dur"] * scale
+        scaled_set = p["set_dur"] if p["explicit"] else p["set_dur"] * scale
         # Clamp: never let a set start past the activity's real end, and
         # never let its end exceed it either (scale-clamp saturation guard —
         # plan §3 Phase E "Scale Clamp Leakage").

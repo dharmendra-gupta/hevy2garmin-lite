@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 from garminconnect import GarminConnectAuthenticationError, GarminConnectConnectionError
 
-from src.push import _strip_all_names, get_existing_exercise_sets, push_exercise_sets
+from src.push import _strip_all_names, get_existing_exercise_sets, push_activity_name, push_exercise_sets
 
 
 def _client_whose_put_raises(message: str) -> MagicMock:
@@ -76,12 +76,24 @@ def test_push_retries_once_with_names_stripped_on_invalid_subcategory():
         "activityId": 1,
         "exerciseSets": [{"exercises": [{"category": "BENCH_PRESS", "name": "BOGUS_NAME", "probability": 95.0}]}],
     }
-    push_exercise_sets(client, activity_id=1, payload=payload)  # must not raise
+    stripped = push_exercise_sets(client, activity_id=1, payload=payload)  # must not raise
 
+    assert stripped is True  # caller needs this to flag the sync as only partially named
     assert client.client.put.call_count == 2
     retried_payload = client.client.put.call_args_list[1].kwargs["json"]
     assert retried_payload["exerciseSets"][0]["exercises"][0]["name"] is None
     assert retried_payload["exerciseSets"][0]["exercises"][0]["category"] == "BENCH_PRESS"
+
+
+def test_push_returns_false_when_no_stripping_was_needed():
+    client = MagicMock()
+    client.client.put.return_value = None
+    payload = {
+        "activityId": 1,
+        "exerciseSets": [{"exercises": [{"category": "BENCH_PRESS", "name": "BARBELL_BENCH_PRESS", "probability": 95.0}]}],
+    }
+    stripped = push_exercise_sets(client, activity_id=1, payload=payload)
+    assert stripped is False
 
 
 def test_push_gives_up_if_stripped_retry_also_fails():
@@ -95,3 +107,26 @@ def test_push_gives_up_if_stripped_retry_also_fails():
     }
     with pytest.raises(GarminConnectConnectionError):
         push_exercise_sets(client, activity_id=1, payload=payload)
+
+
+# --- Activity title push (Garmin.set_activity_name — same bypass-of-connectapi() ---
+# ---            401-normalization hazard as _put_exercise_sets)                  ---
+
+def test_push_activity_name_raises_auth_error_not_connection_error_on_401():
+    client = MagicMock()
+    client.set_activity_name.side_effect = GarminConnectConnectionError("API Error 401 - ")
+    with pytest.raises(GarminConnectAuthenticationError):
+        push_activity_name(client, activity_id=12345, title="RTT · Lower A (Mon)")
+
+
+def test_push_activity_name_reraises_connection_error_unchanged_on_non_401():
+    client = MagicMock()
+    client.set_activity_name.side_effect = GarminConnectConnectionError("API Error 503 - Service Unavailable")
+    with pytest.raises(GarminConnectConnectionError):
+        push_activity_name(client, activity_id=12345, title="RTT · Lower A (Mon)")
+
+
+def test_push_activity_name_calls_client_with_string_activity_id_and_title():
+    client = MagicMock()
+    push_activity_name(client, activity_id=12345, title="RTT · Lower A (Mon)")
+    client.set_activity_name.assert_called_once_with("12345", "RTT · Lower A (Mon)")

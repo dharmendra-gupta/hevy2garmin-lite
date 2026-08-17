@@ -97,8 +97,12 @@ Docker-compose-only var (not read by the app itself): `GARMIN_TOKEN_HOST_DIR` �
 def sync_one_workout(db, mapper, client, workout_id: str, workout: dict,
                       garmin_activities: list[dict], already_claimed: set[int],
                       breaker: SetPushCircuitBreaker, dry_run: bool = False) -> str:
-    # returns: "synced" | "no_watch_match" | "skipped_idempotent" | "failed"
+    # returns: "synced" | "synced_partial" | "no_watch_match" | "skipped_idempotent" | "failed"
 ```
+`synced_partial` (added 2026-08-17) means the push succeeded but `push_exercise_sets()` had to strip every exercise name in the workout after a 400 Invalid-Sub-Category (see the `exerciseSets` payload section below) — distinct from a full `"synced"` so this isn't silently indistinguishable in the dashboard. Both `"synced"` and `"synced_partial"` count as "already done" for the idempotency content-hash check, and both enable the "Map from Garmin" button in Sync History (`canLearn` in `index.html`).
+
+After a successful `push_exercise_sets()` call (and only if the Hevy workout has a non-empty `title`), `sync_one_workout()` also calls `push.py:push_activity_name(client, activity_id, title)` to rename the Garmin activity from its generic auto-label (e.g. "Strength") to Hevy's real workout title (e.g. "RTT · Lower A (Mon)") — added 2026-08-17, this was previously never implemented at all (only `exerciseSets` were ever pushed). Best-effort: a non-auth failure here is logged and swallowed, not fatal to the sync (the sets already landed); a `GarminConnectAuthenticationError` propagates like any other auth failure in this function.
+
 Three callers, each tagged with a distinct `/v1/logs` `source` (added 2026-08-02 — see HTTP routes and Known gotchas):
 1. `run_sync_cycle(db, mapper, dry_run)` via `main._scheduled_sync()` (default `source="polling"`) — periodic timer path, loops Hevy events, handles updated/deleted
 2. `sync_workout_by_id(db, mapper, workout_id, dry_run)` — webhook path (`source="webhook"`), always re-fetches fresh via `hevy_client.fetch_workout()`
@@ -123,7 +127,7 @@ Resolution order: user override (`data/exercise_mappings.json`) → bundled cata
 
 **Overrides can now carry a name, not just a category** (added for the "learn from Garmin" feature — `src/learn.py` + `POST /v1/mappings/learn-from-garmin/{id}`): `save_override(template_id, category, note="", name=None)` validates any given `name` via `mapping._validate_category_name_pair()` (same fit_tool cross-check, reversed direction — confirms `name` is a genuine member of `category`'s enum) and raises `ValueError` on mismatch. This is safe specifically because the only caller that ever passes a `name` is `learn_mappings_from_garmin()`, which sources it from Garmin's own confirmed state (a manual "Choose an Exercise" UI correction), never a hand-guess. Old category-only override entries (no `"name"` key in `data/exercise_mappings.json`) still resolve fine — `name` is optional/nullable, loaded as `None` if absent.
 
-**`learn_mappings_from_garmin()` (`src/learn.py`)** matches a Garmin `GET exerciseSets` response back to Hevy exercises by **`startTime` string equality**, not `wktStepIndex`/`messageIndex` — confirmed live 2026-08-01 (activity `23810842954`) that both come back `null` on an entry a user manually corrected via Garmin's UI, even though `startTime` survives intact. It reconstructs the same synthesized timeline `push.py:build_exercise_sets_payload` used originally (`build_set_timeline(hevy_exercises, activity_duration_s)`) to compute each Hevy exercise's expected `startTime`, then joins on that. Requires `activity_start`/`activity_duration_s` sourced from `client.get_activity(activity_id)` (**not** `get_activities()`) — see the `parse_activity_summary_gmt` note below for why that needs a different timestamp parser. Only surfaces template_ids not already covered by `mapper.known_template_ids()`. **`known_template_ids()` = bundled catalog ∪ overrides that already carry a validated `name`** (fixed 2026-08-02 — a category-only override, e.g. a hand-guessed dashboard "assign a category" click, used to count as "known" and get permanently skipped by this scoping, with no way to upgrade it short of hand-editing `exercise_mappings.json`). Now a category-only override stays eligible for learning: correct it in Garmin's UI, then re-run "Map from Garmin" on that workout and it overwrites the guess with the real name.
+**`learn_mappings_from_garmin()` (`src/learn.py`)** matches a Garmin `GET exerciseSets` response back to Hevy exercises by **`startTime` string equality**, not `wktStepIndex`/`messageIndex` — confirmed live 2026-08-01 (activity `23810842954`) that both come back `null` on an entry a user manually corrected via Garmin's UI, even though `startTime` survives intact. It reconstructs the same synthesized timeline `push.py:build_exercise_sets_payload` used originally (`build_set_timeline(hevy_exercises, activity_duration_s)`) to compute each Hevy exercise's expected `startTime`, then joins on that. Requires `activity_start`/`activity_duration_s` sourced from `client.get_activity(activity_id)` (**not** `get_activities()`) — see the `parse_activity_summary_gmt` note below for why that needs a different timestamp parser. Only surfaces template_ids not already covered by `mapper.known_template_ids()`. **`known_template_ids()` = bundled catalog entries that actually resolve to a specific name ∪ overrides that already carry a validated `name`** (fixed 2026-08-02 for overrides, fixed again 2026-08-17 for the bundled-catalog side — see Known gotchas). A category-only override, or a bundled catalog entry whose category/subcategory can't be resolved (falls back to generic `TOTAL_BODY`/`name=None`), both stay eligible for learning: correct it in Garmin's UI, then re-run "Map from Garmin" on that workout and it overwrites the guess/fallback with the real name.
 
 ---
 
@@ -153,7 +157,8 @@ Resolution order: user override (`data/exercise_mappings.json`) → bundled cata
 - `startTime` format: `"%Y-%m-%dT%H:%M:%S.0"` (literal `.0`, no timezone offset).
 - Endpoint: `PUT /activity-service/activity/{id}/exerciseSets`, undocumented. Call pattern: `client.client.put("connectapi", path, json=payload, api=True)` — **not** `client.connectapi()` (that's GET-only).
 - Backup-before-push: `GET` same path via `client.connectapi(path)` (the high-level, decorated wrapper — fine for GET).
-- **Atomic**: one exercise with an invalid subcategory 400s the *entire* payload, no per-exercise error. `push_exercise_sets()` retries once with `_strip_all_names()` (category + probability kept) on `GarminConnectConnectionError` matching `"Invalid Sub-Category"`.
+- **Atomic**: one exercise with an invalid subcategory 400s the *entire* payload, no per-exercise error. `push_exercise_sets()` retries once with `_strip_all_names()` (category + probability kept) on `GarminConnectConnectionError` matching `"Invalid Sub-Category"`. **Returns `bool`** (added 2026-08-17): `True` if this fallback fired (every name in the workout got stripped), `False` on a clean first-try push — `sync_one_workout()` uses this to set `sync_status = "synced_partial"` instead of `"synced"`, so a silently-degraded push is no longer indistinguishable from a fully successful one (previously only logged to container stdout via `logger.warning`, invisible in the dashboard).
+- **Activity title**: `push.py:push_activity_name(client, activity_id, title)` (added 2026-08-17) calls `Garmin.set_activity_name(activity_id, title)` — a library-provided high-level method, but like `exerciseSets` it goes through the low-level `self.client.put(...)` internally, **not** the decorated `connectapi()`, so it needs the same `_reraise_401_as_auth_error()` treatment. `sync_one_workout()` calls it with Hevy's workout-level `title` field right after a successful `push_exercise_sets()`. **Unverified**: the exact Hevy workout-level `title` field name hasn't been confirmed against a live `fetch_workout()` response in this session — same discipline as the webhook-payload fix applies if it turns out wrong.
 
 ---
 
@@ -187,7 +192,7 @@ Match requires **all** of: ≥70% temporal overlap (`MIN_OVERLAP_PCT = 0.70`), s
 
 ```sql
 synced_workouts(hevy_workout_id PK, garmin_activity_id UNIQUE, sync_status, content_hash, synced_at)
-  -- sync_status: synced | no_watch_match | failed | source_deleted
+  -- sync_status: synced | synced_partial | no_watch_match | failed | source_deleted
 unmapped_exercises(template_id PK, exercise_name, first_seen_at, occurrences)
 sync_meta(key PK, value)
   -- keys used: last_poll_timestamp, polling_enabled ("true"/"false" strings),
@@ -248,21 +253,25 @@ Measured idle RSS of the running `app` container: **~42–44MB** (`docker stats`
 - `POST /v1/auth/login` does **not** force-reset an already-cached client if status is `authenticated` — matches garmin-scale-sync's own no-op behavior, not a bug.
 - **A manual "Choose an Exercise" correction in Garmin's own UI nulls out `wktStepIndex`/`messageIndex`** on that set — confirmed live 2026-08-01. `learn.py` cannot join on those; it matches on `startTime` instead, which does survive.
 - **A category-only override used to permanently block "learn from Garmin" for that exercise** — `known_template_ids()` counted any override, name or not, as "already known," so an accidental dashboard "Save" click (or a deliberate quick category fix) could never be upgraded to a real name afterward, with no delete/reset endpoint to undo it either. Fixed live 2026-08-02: only name-bearing overrides count as known now. If this regresses, the symptom is "Map from Garmin" silently finding nothing for an exercise you know you corrected in Garmin's UI.
+- **The same bug existed one layer up, in the bundled catalog itself, until 2026-08-17.** `known_template_ids()` used to count *any* `TEMPLATE_TO_FIT` membership as "known," even for the ~18/428 entries whose category id or subcategory can't actually be resolved (fall back to generic `TOTAL_BODY`/`name=None`). Real example hit live: "Terminal Knee Extension Stretch" was permanently un-learnable no matter how many times it was corrected in Garmin's UI. Fixed: `known_template_ids()` now calls `resolve()` on every catalog id and only counts it as known if a specific name actually comes back.
+- **`timeline.py`'s scale factor used to apply to Hevy's *explicit* `duration_seconds` sets too, not just estimated ones** — until 2026-08-17. A real 30s stretch/plank could render as 45s+ on Garmin whenever the ideal total didn't exactly equal the real activity duration (i.e. almost always). The one test covering this path happened to set them equal, so `scale` was trivially `1.0` and never caught it. Fixed: explicit durations are excluded from the scale computation and never multiplied by it.
+- **Garmin's activity title (e.g. "Strength") was never touched by this codebase at all, until 2026-08-17** — only `exerciseSets` were ever pushed. Fixed via `push.py:push_activity_name()`, called from `sync_one_workout()` with Hevy's workout-level `title`. If the rename doesn't take effect, first check whether Hevy's real field name for the workout title actually is `title` — this was implemented without a live confirmation call (see the `exerciseSets` payload section's note on this).
 - `client.get_activity(id)` and `client.get_activities()` return `startTimeGMT` in **two different string formats** — see the Matching rule section above. Using `parse_garmin_gmt` on a `get_activity()` response (or vice versa) raises `ValueError`.
 
 ---
 
-## Test file → coverage map (`tests/`, 77 tests total, run via `docker compose run --rm test`)
+## Test file → coverage map (`tests/`, 90 tests total, run via `docker compose run --rm test`)
 
 | File | Covers |
 |---|---|
 | `test_matcher.py` | Overlap/drift/type matching, UTC-vs-local regression, back-to-back sessions, both `startTimeGMT` format parsers |
 | `test_db_idempotency.py` | Sync record CRUD, `UNIQUE` constraint, idempotent reruns, polling toggle + interval persistence, timeline-tuning seconds persistence (all 4 keys, parametrized) |
-| `test_mapping.py` | Category+name resolution (incl. known Bench Press/Deadlift regression values), override precedence (now category+name), unmapped recording, non-hex ID validation, `_validate_category_name_pair`, `known_template_ids()` scoping (category-only overrides stay learnable) |
+| `test_mapping.py` | Category+name resolution (incl. known Bench Press/Deadlift regression values), override precedence (now category+name), unmapped recording, non-hex ID validation, `_validate_category_name_pair`, `known_template_ids()` scoping (category-only overrides *and* bundled-catalog fallback entries both stay learnable; property test asserting membership matches actual `resolve()` outcome) |
 | `test_learn.py` | `learn_mappings_from_garmin`: `startTime`-based matching, rejects invalid pairs, skips already-known template_ids, dedupes multi-set exercises |
-| `test_timeline.py` | Set ordering, rest placement, scale-clamp overflow guards |
+| `test_timeline.py` | Set ordering, rest placement, scale-clamp overflow guards, explicit `duration_seconds` sets are never scaled even when `scale != 1.0` |
 | `test_hevy_client.py` | `parse_webhook_payload` against the confirmed-live `{"workoutId": "<uuid>"}` shape; missing/empty `workoutId` ignored |
 | `test_config.py` | `WEBHOOK_RETRY_DELAYS_MINUTES` parsing |
-| `test_push_auth_normalization.py` | 401-normalization, `reraise=True` regression, strip-and-retry on Invalid Sub-Category |
+| `test_push_auth_normalization.py` | 401-normalization, `reraise=True` regression, strip-and-retry on Invalid Sub-Category (now asserts the returned `bool`), `push_activity_name()`'s own 401-normalization |
+| `test_sync.py` (new 2026-08-17) | `sync_one_workout()` orchestration: pushes Hevy's `title` as the activity name, skips rename when title is empty, `synced_partial` status when names were stripped, rename failure is best-effort (doesn't fail the sync) vs. an auth failure during rename (does) |
 
 FastAPI routes themselves are **not** covered by automated tests (verified via live `curl` smoke tests instead) — see `CLAUDE.md` for why.

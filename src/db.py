@@ -11,7 +11,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS synced_workouts (
     hevy_workout_id   TEXT PRIMARY KEY,
     garmin_activity_id INTEGER UNIQUE,
-    sync_status        TEXT NOT NULL,  -- synced | no_watch_match | failed | source_deleted
+    sync_status        TEXT NOT NULL,  -- synced | synced_partial | no_watch_match | failed | source_deleted
     content_hash        TEXT,
     synced_at            TEXT NOT NULL
 );

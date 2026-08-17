@@ -165,3 +165,26 @@ def test_name_bearing_override_is_known(mapper):
     # state, genuinely doesn't need re-learning.
     mapper.save_override("CUSTOM_ID", "BENCH_PRESS", name="BARBELL_BENCH_PRESS")
     assert "CUSTOM_ID" in mapper.known_template_ids()
+
+
+def test_bundled_catalog_id_that_falls_back_to_total_body_is_not_known(mapper):
+    # A catalog entry whose category has no confirmed fit_tool name (e.g. one
+    # of 33/36/38/39/41/42/47/52) resolves to generic TOTAL_BODY/name=None —
+    # that's a guess, not a resolution, and must stay eligible for "learn
+    # from Garmin" just like a hand-guessed category-only override. Before
+    # the fix, mere presence in TEMPLATE_TO_FIT counted as "known" regardless
+    # of what it actually resolved to, permanently blocking correction.
+    unresolved_template_id = next(
+        tid for tid, (cat_id, _sub) in TEMPLATE_TO_FIT.items() if cat_id not in CATEGORY_NAMES
+    )
+    assert unresolved_template_id not in mapper.known_template_ids()
+
+
+def test_known_template_ids_matches_actual_resolution_outcome(mapper):
+    # Property check: a template_id counts as "known" if and only if
+    # resolve() actually produces a specific (non-fallback, named) identity.
+    known = mapper.known_template_ids()
+    for template_id in TEMPLATE_TO_FIT:
+        identity = mapper.resolve(template_id, "irrelevant")
+        has_specific_identity = identity.category != FALLBACK_CATEGORY and identity.name is not None
+        assert (template_id in known) == has_specific_identity, template_id

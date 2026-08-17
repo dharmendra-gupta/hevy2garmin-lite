@@ -193,7 +193,13 @@ def _put_exercise_sets(client: Garmin, activity_id: int, payload: dict) -> None:
 
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=20), stop=stop_after_attempt(3), reraise=True)
-def push_exercise_sets(client: Garmin, activity_id: int, payload: dict) -> None:
+def push_exercise_sets(client: Garmin, activity_id: int, payload: dict) -> bool:
+    """Returns True if the strip-all-names fallback fired (every exercise
+    name in this workout was dropped due to one rejected subcategory) — the
+    atomic PUT gives no per-exercise error, so callers can't know which
+    exercise was at fault, only that it happened. Callers should surface
+    this (e.g. a distinct sync_status) rather than let a fully-successful-
+    looking "synced" silently hide that no specific names came through."""
     try:
         _put_exercise_sets(client, activity_id, payload)
     except GarminConnectConnectionError as e:
@@ -205,5 +211,29 @@ def push_exercise_sets(client: Garmin, activity_id: int, payload: dict) -> None:
             activity_id, e,
         )
         _put_exercise_sets(client, activity_id, _strip_all_names(payload))
+        logger.info(
+            "Pushed %d exercise sets to activity %s (names stripped)",
+            len(payload.get("exerciseSets", [])), activity_id,
+        )
+        return True
 
     logger.info("Pushed %d exercise sets to activity %s", len(payload.get("exerciseSets", [])), activity_id)
+    return False
+
+
+@retry(wait=wait_exponential(multiplier=1, min=2, max=20), stop=stop_after_attempt(3), reraise=True)
+def push_activity_name(client: Garmin, activity_id: int, title: str) -> None:
+    """Renames the Garmin activity to Hevy's workout title (e.g. "RTT ·
+    Lower A (Mon)") — Garmin otherwise keeps its own generic auto-generated
+    label ("Strength") forever, since nothing else in this codebase ever
+    touches the activity-level name. Garmin.set_activity_name() goes through
+    the same low-level client.client.put() as _put_exercise_sets — it is
+    NOT the high-level, auto-translating connectapi() wrapper — so it needs
+    the identical 401-normalization treatment (see architecture.md's
+    Authentication section: any new PUT call whose exception type callers
+    branch on must get this)."""
+    try:
+        client.set_activity_name(str(activity_id), title)
+    except GarminConnectConnectionError as e:
+        _reraise_401_as_auth_error(e)
+        raise
