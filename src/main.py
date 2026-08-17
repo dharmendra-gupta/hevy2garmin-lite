@@ -426,7 +426,14 @@ async def learn_from_garmin(hevy_workout_id: str):
         garmin_exercise_sets = get_existing_exercise_sets(client, activity_id) or {}
     except GarminConnectAuthenticationError as e:
         reset_garmin_client()
+        logger.error("Map from Garmin for workout %s aborted — Garmin session expired: %s", hevy_workout_id, e)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Garmin session expired: {e}") from e
+
+    garmin_sets_count = len(garmin_exercise_sets.get("exerciseSets", []))
+    logger.info(
+        "Map from Garmin: workout=%s activity=%s hevy_exercises=%d garmin_exercise_sets=%d",
+        hevy_workout_id, activity_id, len(hevy_exercises), garmin_sets_count,
+    )
 
     learned = learn_mappings_from_garmin(
         hevy_exercises, garmin_exercise_sets, activity_start, activity_duration_s,
@@ -434,5 +441,19 @@ async def learn_from_garmin(hevy_workout_id: str):
     )
     for lm in learned:
         mapper.save_override(lm.template_id, lm.category, note="learned from Garmin", name=lm.name)
+
+    if learned:
+        logger.info(
+            "Map from Garmin for workout %s: learned %d mapping(s): %s",
+            hevy_workout_id, len(learned),
+            ", ".join(f"{lm.template_id}->{lm.category}/{lm.name}" for lm in learned),
+        )
+    else:
+        logger.info(
+            "Map from Garmin for workout %s: nothing learned (either every exercise's template_id is already "
+            "known, no set's startTime matched the synthesized timeline, or the returned name failed "
+            "category/name validation)",
+            hevy_workout_id,
+        )
 
     return {"learned": [lm.__dict__ for lm in learned]}

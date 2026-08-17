@@ -19,7 +19,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from src.mapping import _validate_category_name_pair
-from src.template_map_source import TEMPLATE_TO_FIT
 from src.timeline import TimelineConfig, build_set_timeline
 
 
@@ -64,7 +63,13 @@ def learn_mappings_from_garmin(
         template_id = hevy_exercises[exercise_idx].get("exercise_template_id")
         if not template_id or template_id in seen_template_ids:
             continue
-        if template_id in TEMPLATE_TO_FIT or template_id in already_known_template_ids:
+        # Deliberately NOT `template_id in TEMPLATE_TO_FIT` here — a catalog
+        # entry can be present but still resolve to generic TOTAL_BODY/no
+        # name (unresolved category/subcategory). already_known_template_ids
+        # (mapper.known_template_ids()) already accounts for that correctly;
+        # a raw catalog-membership check here would re-introduce the exact
+        # bug fixed in mapping.py 2026-08-17, just one layer up.
+        if template_id in already_known_template_ids:
             continue
 
         category = exercises_field[0].get("category")
