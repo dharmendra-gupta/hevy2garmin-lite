@@ -223,6 +223,10 @@
 
   <div class="glass-panel">
     <h2>Recent Sync History</h2>
+    <label class="field-row" style="margin-top: 0;">
+      <input type="checkbox" id="includeMappedCheckbox">
+      Also re-check already-mapped exercises (use if Garmin shows the wrong specific exercise)
+    </label>
     <table id="history"><thead><tr><th>Workout</th><th>Status</th><th>Synced At</th><th></th></tr></thead><tbody></tbody></table>
   </div>
 
@@ -409,7 +413,8 @@ async function saveTimelineSettings() {
 async function learnFromGarmin(workoutId, btn) {
   btn.disabled = true;
   btn.textContent = 'Checking…';
-  const r = await j(`/v1/mappings/learn-from-garmin/${workoutId}`, { method: 'POST' });
+  const includeMapped = document.getElementById('includeMappedCheckbox').checked;
+  const r = await j(`/v1/mappings/learn-from-garmin/${workoutId}?include_mapped=${includeMapped}`, { method: 'POST' });
   const count = (r.learned || []).length;
   showToast(count > 0 ? `Learned ${count} exercise mapping(s)` : 'No changes found');
   refresh();

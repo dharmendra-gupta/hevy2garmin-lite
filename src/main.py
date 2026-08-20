@@ -401,12 +401,21 @@ async def sync_history():
 
 
 @app.post("/v1/mappings/learn-from-garmin/{hevy_workout_id}", dependencies=[Depends(verify_basic_auth)])
-async def learn_from_garmin(hevy_workout_id: str):
+async def learn_from_garmin(hevy_workout_id: str, include_mapped: bool = False):
     """Reads back a user's manual 'Choose an Exercise' correction in Garmin
     Connect and turns it into a validated (category, name) override — see
     the 'learn from Garmin' feature plan. Unlike POST /v1/mappings, this can
     capture an exact name because it's read from Garmin's own confirmed
-    state, never hand-guessed (see mapping.py's _validate_category_name_pair)."""
+    state, never hand-guessed (see mapping.py's _validate_category_name_pair).
+
+    `include_mapped` (default False, dashboard checkbox) widens the scan to
+    also re-check template_ids that already have a specific mapping — the
+    default excludes them since most bundled-catalog resolutions are correct,
+    but a confidently-wrong one (real example: "Lateral Dumbbell Raise")
+    is otherwise stuck exactly like an unmapped one, with no way back short
+    of hand-editing exercise_mappings.json. Widening the scan can't bypass
+    any of learn_mappings_from_garmin()'s existing safety nets — it only
+    changes which template_ids are considered at all."""
     record = db.get_sync_record(hevy_workout_id)
     if record is None or record["garmin_activity_id"] is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No synced Garmin activity for this workout")
@@ -427,15 +436,24 @@ async def learn_from_garmin(hevy_workout_id: str):
 
     garmin_sets_count = len(garmin_exercise_sets.get("exerciseSets", []))
     logger.info(
-        "Map from Garmin: workout=%s activity=%s hevy_exercises=%d garmin_exercise_sets=%d",
-        hevy_workout_id, activity_id, len(hevy_exercises), garmin_sets_count,
+        "Map from Garmin: workout=%s activity=%s hevy_exercises=%d garmin_exercise_sets=%d include_mapped=%s",
+        hevy_workout_id, activity_id, len(hevy_exercises), garmin_sets_count, include_mapped,
     )
+
+    known_before = mapper.known_template_ids()
+    already_known = set() if include_mapped else known_before
 
     learned = learn_mappings_from_garmin(
         hevy_exercises, garmin_exercise_sets,
-        already_known_template_ids=mapper.known_template_ids(),
+        already_known_template_ids=already_known,
     )
     for lm in learned:
+        if lm.template_id in known_before:
+            old = mapper.resolve(lm.template_id, "")
+            logger.info(
+                "Map from Garmin for workout %s: correcting %s: %s/%s -> %s/%s",
+                hevy_workout_id, lm.template_id, old.category, old.name, lm.category, lm.name,
+            )
         mapper.save_override(lm.template_id, lm.category, note="learned from Garmin", name=lm.name)
 
     if learned:
