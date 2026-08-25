@@ -4,14 +4,25 @@ has to, to do a PUT — see push.py's module docstring), so a dead session
 there raises the raw GarminConnectConnectionError instead of
 GarminConnectAuthenticationError. Callers only reset the cached client on
 the latter, so without normalization a poisoned client stays cached and
-every subsequent sync keeps failing until the process restarts."""
+every subsequent sync keeps failing until the process restarts.
+
+The normalization itself now lives in src/garmin_session/errors.py, which
+classifies on the response's HTTP status instead of regex-matching "API Error
+401" in the message (see tests/test_garmin_session.py). What these tests pin
+is push.py's half of the contract: it must propagate an auth error rather than
+swallowing or reclassifying it, and must not mistake other failures for one."""
 
 from unittest.mock import MagicMock
 
 import pytest
 from garminconnect import GarminConnectAuthenticationError, GarminConnectConnectionError
 
-from src.push import _strip_all_names, get_existing_exercise_sets, push_activity_name, push_exercise_sets
+from src.push import (
+    _strip_all_names,
+    get_existing_exercise_sets,
+    push_activity_name,
+    push_exercise_sets,
+)
 
 
 def _client_whose_put_raises(message: str) -> MagicMock:
@@ -20,8 +31,14 @@ def _client_whose_put_raises(message: str) -> MagicMock:
     return client
 
 
-def test_push_raises_auth_error_not_connection_error_on_401():
-    client = _client_whose_put_raises("API Error 401 - ")
+def test_push_propagates_auth_error_from_a_dead_session():
+    """By the time push sees a rejected session, garmin_session.errors has
+    already typed it as an auth error. push must let it through so the caller
+    resets the cached session instead of retrying into a dead client."""
+    client = MagicMock()
+    client.client.put.side_effect = GarminConnectAuthenticationError(
+        "Garmin rejected the session (HTTP 401)"
+    )
     with pytest.raises(GarminConnectAuthenticationError):
         push_exercise_sets(client, activity_id=12345, payload={"activityId": 12345, "exerciseSets": []})
 
@@ -112,9 +129,13 @@ def test_push_gives_up_if_stripped_retry_also_fails():
 # --- Activity title push (Garmin.set_activity_name — same bypass-of-connectapi() ---
 # ---            401-normalization hazard as _put_exercise_sets)                  ---
 
-def test_push_activity_name_raises_auth_error_not_connection_error_on_401():
+def test_push_activity_name_propagates_auth_error_from_a_dead_session():
+    """Same contract as the exerciseSets push: the 401 is typed upstream by
+    garmin_session.errors, and push_activity_name must let it through."""
     client = MagicMock()
-    client.set_activity_name.side_effect = GarminConnectConnectionError("API Error 401 - ")
+    client.set_activity_name.side_effect = GarminConnectAuthenticationError(
+        "Garmin rejected the session (HTTP 401)"
+    )
     with pytest.raises(GarminConnectAuthenticationError):
         push_activity_name(client, activity_id=12345, title="RTT · Lower A (Mon)")
 

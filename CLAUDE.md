@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code in this repo. Keep this file under 40 lines — details belong in `ai-docs/`, not here.
+Guidance for Claude Code in this repo. Keep this file under 60 lines — details belong in `ai-docs/`, not here.
 
 ## What this project is
 
@@ -8,11 +8,15 @@ Hevy2Garmin Lite: enriches a Garmin watch activity **in place** with Hevy's exer
 
 ## Guardrails
 
-- **Strict TDD.** Before modifying or creating any implementation code: write a failing test, run it to confirm the failure, then write the minimum code to turn it green.
+- **Never assume.** Verify before asserting — read the installed library rather than recalling it. `garminconnect` here is 0.3.11; other services on this Garmin account run different versions whose internals differ. Cite `file:line`. If you could not verify something, say so instead of implying you did.
+- **Strict TDD.** Before modifying or creating any implementation code: write a failing test, run it to confirm the failure, then write the minimum code to turn it green. A guard test that cannot fail is worse than none — prove a new one by injecting the violation and watching it go red.
+- **Everything runs in Docker**, unless explicitly stated otherwise.
+- **Reuse one container.** Don't spin up a fresh container per command while testing or investigating — start one and `docker exec` into it repeatedly, rebuilding only when requirements change.
 - **Before touching `sync.py`, `mapping.py`, `push.py`, or `garmin_client.py`**, read @ai-docs/architecture.md first — it documents two real bugs in this exact area (exception-type normalization, missing `reraise=True`) that will silently reappear if the pattern isn't followed.
+- **This Garmin account is shared** with garmin-scale-sync and others. Garmin rotates the refresh token on every refresh, so only one is valid at a time — see `README.md` and `src/garmin_session/`. `src/garmin_session/` is **byte-identical** to garmin-scale-sync's copy: change it in both, or not at all.
 - **For any exact fact** (config keys, HTTP routes, the `exerciseSets` payload shape, DB schema, FIT category enum, function signatures) — grep @ai-docs/RAG.md instead of reading source or guessing.
 - **Before starting a new task**, read `ai-docs/implementation_plan.md` and `ai-docs/RAG.md` first to establish context. **Before finishing one**, update `ai-docs/implementation_plan.md`, `CLAUDE.md`, and `ai-docs/RAG.md` with what changed.
-- Everything runs in Docker. **No local Python environment** — never `pip install` or run `python` on the host.
+- **No local Python environment** — never `pip install` or run `python` on the host.
 - Never run anything on the host, except docker.
 - Linter: `ruff` (config in `pyproject.toml`), run via `docker compose run --rm lint`. It only bind-mounts `tests/` — after `ruff --fix` touches `src/`/`scripts/`, use `docker run` with those dirs mounted too, or the fix is lost when the container exits (see Commands).
 - CI (`.github/workflows/`): `test.yml` runs lint+test on every push/PR to `main`; `publish.yml` builds and pushes to GHCR on a successful `main` run or a GitHub release.

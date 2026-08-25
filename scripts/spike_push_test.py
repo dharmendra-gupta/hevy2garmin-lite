@@ -52,7 +52,8 @@ def build_test_payload(activity_id: int, activity_start: datetime) -> dict:
     """Two sets, no subcategory, no name — the simplest possible probe."""
     set1_start = activity_start + timedelta(seconds=30)
     set2_start = activity_start + timedelta(seconds=120)
-    fmt = lambda dt: dt.strftime("%Y-%m-%dT%H:%M:%S.0")  # noqa: E731
+    def fmt(dt):
+        return dt.strftime("%Y-%m-%dT%H:%M:%S.0")
 
     return {
         "activityId": activity_id,

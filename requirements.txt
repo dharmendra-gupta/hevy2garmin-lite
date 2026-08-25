@@ -1,9 +1,11 @@
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
-garminconnect==0.3.8
-requests>=2.33.0
-tenacity==9.0.0
-python-dotenv==1.0.1
-pydantic-settings==2.7.1
-APScheduler==3.11.0
-fit-tool>=0.9.15
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+garminconnect==0.3.11
+pydantic-settings==2.15.0
+requests==2.34.2
+tenacity==9.1.4
+APScheduler==3.11.3
+fit-tool==0.9.16
+
+# Only used when TOKEN_STORE=postgres.
+psycopg2-binary==2.9.12

@@ -4,7 +4,13 @@ from unittest.mock import patch
 import pytest
 
 from src.db import Database
-from src.mapping import CATEGORY_NAMES, CONFIDENT_PROBABILITY, FALLBACK_CATEGORY, ExerciseMapper, validate_catalog
+from src.mapping import (
+    CATEGORY_NAMES,
+    CONFIDENT_PROBABILITY,
+    FALLBACK_CATEGORY,
+    ExerciseMapper,
+    validate_catalog,
+)
 from src.template_map_source import TEMPLATE_TO_FIT
 
 

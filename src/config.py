@@ -16,6 +16,17 @@ class Settings(BaseSettings):
     GARMIN_EMAIL: str = ""
     GARMIN_PASSWORD: str = ""
 
+    # --- Shared Garmin token store ---
+    # Garmin mints a new refresh token on every refresh and invalidates the old
+    # one, so the account has exactly one valid refresh token at a time. Every
+    # service on this account must therefore point at the SAME store, or
+    # whichever refreshes second gets locked out.
+    #   file      GARMIN_TOKEN_SOURCE_DIR/garmin_tokens.json (same host only)
+    #   postgres  requires TOKEN_DB_URL; the only option across hosts
+    # This MUST match garmin-scale-sync's TOKEN_STORE setting.
+    TOKEN_STORE: str = "file"
+    TOKEN_DB_URL: str = ""
+
     # --- Hevy webhook (fast primary trigger for new workouts) ---
     # Hevy only fires this on workout.created, never on edits/deletes, so
     # polling stays as a slower reconciliation safety net (default OFF,

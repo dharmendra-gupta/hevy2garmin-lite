@@ -25,7 +25,11 @@ import logging
 import re
 from datetime import datetime, timedelta
 
-from garminconnect import Garmin, GarminConnectAuthenticationError, GarminConnectConnectionError
+from garminconnect import (
+    Garmin,
+    GarminConnectAuthenticationError,
+    GarminConnectConnectionError,
+)
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from src.mapping import ExerciseMapper
@@ -114,22 +118,7 @@ def build_exercise_sets_payload(
     return {"activityId": activity_id, "exerciseSets": exercise_sets}
 
 
-_UNAUTHORIZED_RE = re.compile(r"API Error 401\b")
 _INVALID_SUBCATEGORY_RE = re.compile(r"[Ii]nvalid [Ss]ub-?[Cc]ategory")
-
-
-def _reraise_401_as_auth_error(e: Exception) -> None:
-    """client.client.put() bypasses the high-level Garmin.connectapi()
-    wrapper (it's GET-only — see push_exercise_sets), so it never gets that
-    wrapper's 401 -> GarminConnectAuthenticationError translation. Without
-    this, a dead session mid-push surfaces as a generic
-    GarminConnectConnectionError, callers' `except GarminConnectAuthenticationError`
-    never fires, reset_garmin_client() never gets called, and the poisoned
-    cached client keeps failing every subsequent sync until the process
-    restarts. Normalize here so every caller sees the same exception type
-    regardless of which layer raised it."""
-    if isinstance(e, GarminConnectConnectionError) and _UNAUTHORIZED_RE.search(str(e)):
-        raise GarminConnectAuthenticationError(f"Session rejected mid-request: {e}") from e
 
 
 def _is_invalid_subcategory_error(e: Exception) -> bool:
@@ -165,7 +154,6 @@ def get_existing_exercise_sets(client: Garmin, activity_id: int) -> dict | None:
     except GarminConnectAuthenticationError:
         raise
     except Exception as e:  # noqa: BLE001
-        _reraise_401_as_auth_error(e)
         logger.warning("Could not back up existing exerciseSets for activity %s: %s", activity_id, e)
         return None
 
@@ -180,16 +168,12 @@ def _put_exercise_sets(client: Garmin, activity_id: int, payload: dict) -> None:
     `client.client.put("connectapi", path, json=..., api=True)`, so we do
     the same here rather than the higher-level wrapper.
     """
-    try:
-        client.client.put(
-            "connectapi",
-            EXERCISE_SETS_PATH.format(activity_id=activity_id),
-            json=payload,
-            api=True,
-        )
-    except GarminConnectConnectionError as e:
-        _reraise_401_as_auth_error(e)
-        raise
+    client.client.put(
+        "connectapi",
+        EXERCISE_SETS_PATH.format(activity_id=activity_id),
+        json=payload,
+        api=True,
+    )
 
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=20), stop=stop_after_attempt(3), reraise=True)
@@ -227,13 +211,8 @@ def push_activity_name(client: Garmin, activity_id: int, title: str) -> None:
     Lower A (Mon)") — Garmin otherwise keeps its own generic auto-generated
     label ("Strength") forever, since nothing else in this codebase ever
     touches the activity-level name. Garmin.set_activity_name() goes through
-    the same low-level client.client.put() as _put_exercise_sets — it is
-    NOT the high-level, auto-translating connectapi() wrapper — so it needs
-    the identical 401-normalization treatment (see architecture.md's
-    Authentication section: any new PUT call whose exception type callers
-    branch on must get this)."""
-    try:
-        client.set_activity_name(str(activity_id), title)
-    except GarminConnectConnectionError as e:
-        _reraise_401_as_auth_error(e)
-        raise
+    the same low-level client.client.put() as _put_exercise_sets rather than
+    the high-level connectapi() wrapper — a 401 there is typed correctly by
+    garmin_session.errors, which classifies on HTTP status rather than on the
+    text of the error message."""
+    client.set_activity_name(str(activity_id), title)

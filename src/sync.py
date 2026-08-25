@@ -18,7 +18,12 @@ from garminconnect import GarminConnectAuthenticationError
 from src import hevy_client
 from src.config import settings
 from src.db import Database
-from src.garmin_client import TokenLoadError, get_garmin_client, reset_garmin_client
+from src.garmin_client import (
+    TokenLoadError,
+    get_garmin_client,
+    publish_garmin_tokens,
+    reset_garmin_client,
+)
 from src.mapping import ExerciseMapper
 from src.matcher import find_best_match, parse_garmin_gmt
 from src.push import (
@@ -168,7 +173,14 @@ def sync_workout_by_id(db: Database, mapper: ExerciseMapper, workout_id: str, dr
     }
     breaker = SetPushCircuitBreaker(max_consecutive_failures=1)  # single workout — no need for a multi-failure budget
 
-    return sync_one_workout(db, mapper, client, workout_id, workout, garmin_activities, already_claimed, breaker, dry_run)
+    try:
+        return sync_one_workout(
+            db, mapper, client, workout_id, workout,
+            garmin_activities, already_claimed, breaker, dry_run,
+        )
+    finally:
+        # Publish any rotation from this push so peer services pick it up.
+        publish_garmin_tokens()
 
 
 def run_sync_cycle(db: Database, mapper: ExerciseMapper, dry_run: bool = False) -> SyncRunResult:
@@ -250,5 +262,10 @@ def run_sync_cycle(db: Database, mapper: ExerciseMapper, dry_run: bool = False) 
 
     import datetime
     db.set_last_poll_timestamp(datetime.datetime.now(datetime.UTC).isoformat())
+
+    # If garminconnect rotated the account's refresh token during this cycle,
+    # publish it now so peer services adopt it instead of carrying on with the
+    # token it just invalidated.
+    publish_garmin_tokens()
 
     return result

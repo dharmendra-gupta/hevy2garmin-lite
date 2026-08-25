@@ -79,9 +79,27 @@ All configuration is via `.env` (see `.env.example` for the full annotated templ
 | `WORKING_SET_SECONDS` / `WARMUP_SET_SECONDS` / `REST_BETWEEN_SETS_SECONDS` / `REST_BETWEEN_EXERCISES_SECONDS` | `40` / `25` / `75` / `120` | Fallback set-timeline estimation inputs — live-editable from the dashboard's Timeline Tuning panel once set (persisted in SQLite, not `.env`) |
 | `API_BASIC_AUTH_USERNAME` / `API_BASIC_AUTH_PASSWORD` | `admin` / `change_me` | Dashboard + API auth — change this |
 | `DRY_RUN` | `false` | Match and build payloads without pushing to Garmin |
-| `GARMIN_TOKEN_HOST_DIR` | `./.garminconnect` | Host path for the shared Garmin token volume |
+| `GARMIN_TOKEN_HOST_DIR` | `./.garminconnect` | Host path for the shared Garmin token volume (only used when `TOKEN_STORE=file`) |
+| `TOKEN_STORE` | `file` | Where the shared Garmin token lives: `file`, `sqlite`, or `postgres`. **Must match garmin-scale-sync's setting** |
+| `TOKEN_DB_URL` | — | Required when `TOKEN_STORE=postgres`; must point at the same database garmin-scale-sync uses |
 
 ### Sharing tokens with garmin-scale-sync (or another host)
+
+Garmin issues a **new refresh token every time one is refreshed** and invalidates the previous one, so the account has exactly **one valid refresh token at any moment** — however many services use it. If two services each keep their own copy, whichever refreshes second is holding a token Garmin has already replaced: it gets a `401`, does a full credential login, and in doing so invalidates the *other* service's token. They then take turns locking each other out, and the repeated logins hit Garmin's SSO rate limit — applied per IP and per account, so it can degrade the Garmin Connect mobile app too.
+
+Every service must therefore read and write the same store. Pick the backend by where they run:
+
+| `TOKEN_STORE` | Token location | Use when |
+|---|---|---|
+| `file` (default) | the `/app/garmin_tokens_source` bind mount | both services share a host |
+| `sqlite` | `$DATA_DIR/garmin_tokens.db` | both share a host; real write locking |
+| `postgres` | `TOKEN_DB_URL` | **services run on different hosts** |
+
+Writes are atomic and guarded by a lock, so concurrent access is safe. `sqlite` is same-host only — its locking is unreliable over NFS/SMB. `postgres` needs no shared filesystem, so the volume mount described below becomes unnecessary and the two services can live on separate machines.
+
+> ⚠️ Both services must use the **same** `TOKEN_STORE` and the same database. Pointing one at `postgres` while the other still reads the JSON file silently splits them onto separate sessions, and they resume invalidating each other.
+
+**The rest of this section applies to `TOKEN_STORE=file`.**
 
 This app always reads/writes its Garmin session token at the **fixed container path `/app/garmin_tokens_source`** — that path is not configurable, only what's mounted into it is. `GARMIN_TOKEN_HOST_DIR` is a `docker-compose.yml`-only variable (the app itself never reads it); it just controls what host folder gets bind-mounted to `/app/garmin_tokens_source` in *this repo's own* `docker-compose.yml`.
 
